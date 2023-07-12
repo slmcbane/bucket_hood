@@ -47,5 +47,12 @@ struct xoshiro256ss {
     uint64_t m_state[ 4 ];
 };
 
+struct NoHash {
+    template < class T >
+    uint32_t operator()( const T& ) const noexcept {
+        return -1;
+    }
+};
+
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
 
