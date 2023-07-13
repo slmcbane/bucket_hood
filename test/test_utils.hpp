@@ -7,6 +7,10 @@
 inline uint64_t rotl( uint64_t x, int k ) { return ( x << k ) | ( x >> ( 64 - k ) ); }
 
 struct xoshiro256ss {
+    typedef uint64_t result_type;
+    static constexpr auto min() { return std::numeric_limits< uint64_t >::min(); }
+    static constexpr auto max() { return std::numeric_limits< uint64_t >::max(); }
+
     xoshiro256ss() {
         static_assert( sizeof( uint64_t ) == 2 * sizeof( unsigned ) ||
                        sizeof( uint64_t ) == sizeof( unsigned ) );
