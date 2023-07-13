@@ -150,7 +150,7 @@ class SetImpl {
 
                 while ( match_mask ) {
                     int i = CTZ( match_mask );
-                    if ( Compare{}( key, ( bucket_start + i )->get() ) ) {
+                    if ( LIKELY( Compare{}( key, ( bucket_start + i )->get() ) ) ) {
                         return found_existing_slot( bucket_index, i );
                     }
                     match_mask ^= 1 << i;
