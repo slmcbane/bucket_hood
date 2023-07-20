@@ -17,14 +17,27 @@ template < class T, class Hash = std::hash< T >, class Compare = std::equal_to< 
            class Allocator = std::allocator< T > >
 class unordered_set {
   public:
-    typedef mixed_hash< Hash, T > hash_type;
+    typedef mixed_hash< Hash, T > hasher;
+    typedef typename SetBackendSelector< T, hasher, Compare, Allocator >::type backend_type;
+    typedef typename backend_type::bucket_type Bucket;
+    typedef SetIterator< Bucket, T, true > iterator;
+    typedef iterator const_iterator;
+    typedef T key_type;
+    typedef T value_type;
+    typedef bucket_hood::size_type size_type;
+    typedef std::ptrdiff_t difference_type;
+    typedef Allocator allocator_type;
+    typedef value_type& reference;
+    typedef value_type const& const_reference;
+    typedef typename std::allocator_traits< Allocator >::pointer pointer;
+    typedef typename std::allocator_traits< Allocator >::const_pointer const_pointer;
 
-    BucketAndSlot insert( const T& key ) {
+    std::pair< iterator, bool > insert( const T& key ) {
         if ( UNLIKELY( m_impl.uninitialized() ) ) {
             m_impl.initialize();
         }
 
-        const auto hash = hash_type{}( key );
+        const auto hash = hasher{}( key );
         size_type bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
         const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
         BucketAndSlot where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOrInsert >(
@@ -40,22 +53,30 @@ class unordered_set {
         if ( !where.key_exists() ) {
             CoreAlgorithms::do_insert( m_impl, key, low_bits, where );
         }
-        return where;
+
+        return { CoreAlgorithms::make_const_iterator( m_impl, where ), !where.key_exists() };
     }
 
-    BucketAndSlot find( const T& key ) const {
+    iterator find( const T& key ) const {
         if ( m_impl.empty() ) {
-            return NO_BUCKET;
+            return CoreAlgorithms::const_end( m_impl );
         }
 
-        const auto hash = hash_type{}( key );
+        const auto hash = hasher{}( key );
         const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
-        return m_impl.template find_or_insert< NotEviction, NotRehash, FindOnly >(
+        auto where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOnly >(
             key, CoreAlgorithms::bucket_index_from_hash( m_impl, hash ), low_bits );
+
+        if ( where.not_found() ) {
+            return CoreAlgorithms::const_end( m_impl );
+        } else {
+            return CoreAlgorithms::make_const_iterator( m_impl, where );
+        }
     }
 
+    iterator end() const noexcept { return CoreAlgorithms::const_end( m_impl ); }
+
   private:
-    typedef typename SetBackendSelector< T, hash_type, Compare, Allocator >::type backend_type;
     backend_type m_impl;
     float m_load_factor{ default_load_factor };
 };

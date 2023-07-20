@@ -163,6 +163,97 @@ struct IsEviction : std::true_type {};
 struct NotEviction : std::false_type {};
 
 /*
+ * All the iterators we need can be built on the SetIterator defined below, which in
+ * turn relies on SlotIterator for its implementation.
+ */
+template < class Bucket, class T >
+struct SlotIterator {
+    SlotIterator() noexcept = default;
+
+    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot ) noexcept
+        : m_bucket{ bucket }, m_slot{ slot } {
+        if ( bucket ) {
+            m_mask = Bucket::occupied_mask( *m_bucket );
+        }
+        scan_to_slot();
+    }
+
+    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot, int slot_index ) noexcept
+        : m_bucket{ bucket }, m_slot{ slot } {
+        assert( m_bucket );
+        m_mask = Bucket::occupied_mask( *m_bucket );
+        assert( m_mask & ( 1 << slot_index ) );
+        m_slot_index = slot_index;
+        m_mask &= ( ~0u << m_slot_index );
+    }
+
+    void increment() noexcept { scan_to_slot(); }
+
+    const Slot< T >& dereference() const noexcept { return *( m_slot + m_slot_index ); }
+
+    friend bool operator==( const SlotIterator& a, const SlotIterator& b ) {
+        return a.m_bucket == b.m_bucket && a.m_slot_index == b.m_slot_index;
+    }
+
+  private:
+    const Bucket* m_bucket{ nullptr };
+    Slot< T >* m_slot{ nullptr };
+    int m_mask{ 0 };
+    int m_slot_index{ 0 };
+
+    void scan_to_slot() noexcept {
+        while ( !m_mask ) {
+            ++m_bucket;
+            m_mask = Bucket::occupied_mask( *m_bucket );
+            m_slot += Bucket::NUM_SLOTS;
+        }
+        m_slot_index = CTZ( m_mask );
+        m_mask ^= ( 1 << m_slot_index );
+    }
+};
+
+template < class Bucket, class T, bool is_const >
+struct SetIterator {
+    typedef T value_type;
+    typedef std::conditional_t< is_const, const T*, T* > pointer;
+    typedef std::conditional_t< is_const, const T&, T& > reference;
+    typedef std::ptrdiff_t difference_type;
+    typedef std::forward_iterator_tag iterator_category;
+
+    SetIterator() noexcept = default;
+
+    explicit SetIterator( const Bucket* bucket, Slot< T >* slot, int slot_index ) noexcept
+        : m_slot_iterator( bucket, slot, slot_index ) {}
+
+    SetIterator& operator++() noexcept {
+        m_slot_iterator.increment();
+        return *this;
+    }
+
+    SetIterator operator++( int ) noexcept {
+        auto out = *this;
+        this->operator++();
+        return out;
+    }
+
+    template < bool B >
+    bool operator==( const SetIterator< Bucket, T, B >& other ) const noexcept {
+        return m_slot_iterator == other.m_slot_iterator;
+    }
+
+    template < bool B >
+    bool operator!=( const SetIterator< Bucket, T, B >& other ) const noexcept {
+        return !( *this == other );
+    }
+
+    reference operator*() const noexcept { return m_slot_iterator.dereference().get(); }
+    pointer operator->() const noexcept { return &reference(); }
+
+  private:
+    SlotIterator< Bucket, T > m_slot_iterator;
+};
+
+/*
  * Collect the main algorithms that can be abstracted away from the backend in a generic container.
  * These are given friend access to each backend so that the code does not need to be duplicated in
  * each. Only the methods that actually use architecture-specific code live in the backend.
@@ -245,9 +336,10 @@ struct CoreAlgorithms {
         auto old_buckets = backend.m_buckets;
         backend.m_slots = rebind_allocate< typename Backend::SlotAlloc >(
             backend.m_allocator, new_size * Backend::bucket_type::NUM_SLOTS );
-        backend.m_buckets = rebind_allocate< typename Backend::BucketAlloc >( backend.m_allocator, new_size );
+        backend.m_buckets =
+            rebind_allocate< typename Backend::BucketAlloc >( backend.m_allocator, new_size + 1 );
         std::memset( backend.m_buckets, 0, new_size * sizeof( typename Backend::bucket_type ) );
-        std::uninitialized_default_construct_n( backend.m_buckets, new_size );
+        backend.m_buckets[ new_size ].setup_end_sentinel();
         backend.m_bitshift -= 1;
         backend.m_num_occupied = 0;
         backend.m_rehash = float( new_size * Backend::bucket_type::NUM_SLOTS ) * load_factor;
@@ -278,7 +370,24 @@ struct CoreAlgorithms {
 
         rebind_deallocate< typename Backend::SlotAlloc >( backend.m_allocator, old_slots,
                                                           num_buckets * Backend::bucket_type::NUM_SLOTS );
-        rebind_deallocate< typename Backend::BucketAlloc >( backend.m_allocator, old_buckets, num_buckets );
+        rebind_deallocate< typename Backend::BucketAlloc >( backend.m_allocator, old_buckets, num_buckets + 1 );
+    }
+
+    template < class Backend >
+    using value_type = std::decay_t< decltype( std::declval< Backend >().m_slots->get() ) >;
+
+    template < class Backend >
+    static auto make_const_iterator( const Backend& backend, const BucketAndSlot& where ) noexcept {
+        assert( !where.not_found() );
+        return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
+            backend.m_buckets + where.bucket_index,
+            backend.m_slots + Backend::bucket_type::NUM_SLOTS * where.bucket_index, where.slot_index() );
+    }
+
+    template < class Backend >
+    static auto const_end( const Backend& backend ) {
+        return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
+            backend.m_buckets + backend.num_buckets(), nullptr, 0 );
     }
 };
 

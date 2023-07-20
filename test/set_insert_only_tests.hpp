@@ -30,11 +30,12 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
     for ( int i = 0; i < count; ++i ) {
         int to_insert = generator();
         bool inserted = ref_set.insert( to_insert ).second;
-        bool binserted = !my_set.insert( to_insert ).key_exists();
+        bool binserted = my_set.insert( to_insert ).second;
         REQUIRE_MESSAGE( inserted == binserted, "Insertion test failed for x = ", to_insert );
         if ( ( i + 1 ) % granularity == 0 ) {
             for ( int x : ref_set ) {
-                REQUIRE_MESSAGE( !my_set.find( x ).not_found(), "Failed finding ", to_insert, " in my_set" );
+                REQUIRE_MESSAGE( !( my_set.find( x ) == my_set.end() ), "Failed finding ", to_insert,
+                                 " in my_set" );
             }
         }
     }
@@ -53,7 +54,7 @@ TEST_CASE( "Insert 100 values 1000 times with check after every value" ) {
     }
 } // TEST_CASE
 
-TEST_CASE( "Insert 1'000'000 values twice with check every 1000 values " ) {
+TEST_CASE( "[EXPENSIVE] Insert 1'000'000 values twice with check every 1000 values " ) {
     xoshiro256ss generator;
 
     for ( int i = 0; i < 2; ++i ) {

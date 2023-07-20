@@ -24,6 +24,17 @@ struct Bucket {
     static constexpr int NUM_SLOTS = 32;
     alignas( __m256i ) uint8_t occupancy_and_hashes[ 32 ];
     alignas( __m256i ) uint8_t probe_lengths[ 32 ];
+
+    static int occupied_mask( const Bucket& bucket ) {
+        __m256i slots = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes );
+        return _mm256_movemask_epi8( slots );
+    }
+
+    void setup_end_sentinel() noexcept {
+        for ( int i = 0; i < 32; ++i ) {
+            occupancy_and_hashes[ i ] = 0xff;
+        }
+    }
 };
 
 template < class T, class Hash, class Compare, class Assign, class Allocator >
@@ -37,8 +48,8 @@ class SetImpl {
     uint8_t m_bitshift{ hash_bits< Hash, T > };
 
     /*
-     * For each occupied bucket in 'buckets', for each non-empty slot in the bucket, invoke F on a pointer to
-     * the slot storing this entry and the index of the slot, that is, f( Slot<T>*, int i ) with i < 32.
+     * For each occupied bucket in 'buckets', for each non-empty slot in the bucket, invoke F on a pointer
+     * to the slot storing this entry and the index of the slot, that is, f( Slot<T>*, int i ) with i < 32.
      */
     template < class F >
     static ALWAYS_INLINE void visit_occupied_slots( const Bucket* buckets, Slot< T >* slots,
@@ -82,9 +93,9 @@ class SetImpl {
     void initialize() {
         assert( uninitialized() );
         m_slots = rebind_allocate< SlotAlloc >( m_allocator, 2 * Bucket::NUM_SLOTS );
-        m_buckets = rebind_allocate< BucketAlloc >( m_allocator, 2 );
+        m_buckets = rebind_allocate< BucketAlloc >( m_allocator, 3 );
         std::memset( m_buckets, 0, sizeof( Bucket ) * 2 );
-        std::uninitialized_default_construct_n( m_buckets, 2 );
+        m_buckets[ 2 ].setup_end_sentinel();
         m_rehash = 2 * Bucket::NUM_SLOTS * default_load_factor;
         m_bitshift -= 1;
     }
@@ -102,7 +113,7 @@ class SetImpl {
         }
 
         rebind_deallocate< SlotAlloc >( m_allocator, m_slots, Bucket::NUM_SLOTS * num_buckets );
-        rebind_deallocate< BucketAlloc >( m_allocator, m_buckets, num_buckets );
+        rebind_deallocate< BucketAlloc >( m_allocator, m_buckets, num_buckets + 1 );
     }
 
     /*
