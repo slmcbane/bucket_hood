@@ -139,7 +139,7 @@ class SetImpl {
             }
         }
 
-        auto loop_condition = [ &probe_length ]() {
+        auto loop_condition = [ & ]() {
             if constexpr ( !Insert{} ) {
                 return true;
             } else {
@@ -222,6 +222,51 @@ class SetImpl {
             bucket_index = ( bucket_index + 1 ) & ( SENTINEL_INDEX >> m_bitshift );
         } while ( loop_condition() );
         UNREACHABLE();
+    }
+
+    void erase( size_type bucket_index, int index_in_bucket ) {
+        Bucket* bucket = m_buckets + bucket_index;
+        do {
+            Slot< T >* bucket_start = m_slots + 32 * bucket_index;
+            __m256i slots = _mm256_load_si256( (const __m256i*)bucket->occupancy_and_hashes );
+            int occupied_mask = _mm256_movemask_epi8( slots );
+            if ( LIKELY( occupied_mask != ~0 ) ) {
+                ( bucket_start + index_in_bucket )->destroy();
+                bucket->occupancy_and_hashes[ index_in_bucket ] = 0;
+                bucket->probe_lengths[ index_in_bucket ] = 0;
+                return;
+            }
+
+            // At this point, the current bucket is full so we need to shift a value backward from the next
+            // bucket. We shift backward the value with longest probe length.
+            bucket_index = ( bucket_index + 1 ) & ( SENTINEL_INDEX >> m_bitshift );
+            Bucket* next_bucket = m_buckets + bucket_index;
+            Slot< T >* next_bucket_start = m_slots + 32 * bucket_index;
+
+            // Find slots in next bucket with non-zero probe length.
+            __m256i probe_lengths = _mm256_load_si256( (const __m256i*)next_bucket->probe_lengths );
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i nonzeros = _mm256_cmpgt_epi8( probe_lengths, zero_vec );
+            int nzmask = _mm256_movemask_epi8( nonzeros );
+            uint8_t max_probe_len = 0;
+            int max_slot = 32;
+            while ( nzmask ) {
+                int i = CTZ( nzmask );
+                uint8_t pl = next_bucket->probe_lengths[ i ];
+                if ( pl > max_probe_len ) {
+                    max_probe_len = pl;
+                    max_slot = i;
+                }
+                nzmask ^= ( 1 << i );
+            }
+            if ( max_slot == 32 ) {
+                // All probe lengths in next bucket were zero, so we're done.
+                return;
+            }
+            ( bucket_start + index_in_bucket )->get() = std::move( ( next_bucket_start + max_slot )->get() );
+            bucket = next_bucket;
+            index_in_bucket = max_slot;
+        } while ( true );
     }
 };
 

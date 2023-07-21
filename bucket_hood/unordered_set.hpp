@@ -74,7 +74,36 @@ class unordered_set {
         }
     }
 
+    bool contains( const T& key ) const {
+        if ( m_impl.empty() ) {
+            return false;
+        }
+        const auto hash = hasher{}( key );
+        const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
+        auto where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOnly >(
+            key, CoreAlgorithms::bucket_index_from_hash( m_impl, hash ), low_bits );
+        return !where.not_found();
+    }
+
     iterator end() const noexcept { return CoreAlgorithms::const_end( m_impl ); }
+
+    bool erase( const T& key ) {
+        if ( m_impl.empty() ) {
+            return false;
+        }
+
+        const auto hash = hasher{}( key );
+        const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
+        BucketAndSlot where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOnly >(
+            key, CoreAlgorithms::bucket_index_from_hash( m_impl, hash ), low_bits );
+
+        if ( where.not_found() ) {
+            return false;
+        }
+
+        m_impl.erase( where.bucket_index, where.slot_index() );
+        return true;
+    }
 
   private:
     backend_type m_impl;
