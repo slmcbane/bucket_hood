@@ -85,7 +85,19 @@ class unordered_set {
         return !where.not_found();
     }
 
-    iterator end() const noexcept { return CoreAlgorithms::const_end( m_impl ); }
+    iterator begin() const noexcept {
+        return m_impl.uninitialized() ? iterator() : CoreAlgorithms::const_iterator_empty_slot( m_impl, 0, 0 );
+    }
+
+    iterator end() const noexcept {
+        return m_impl.uninitialized() ? iterator() : CoreAlgorithms::const_end( m_impl );
+    }
+
+    iterator erase( iterator pos ) {
+        size_type bucket_index = CoreAlgorithms::bucket_index_from_bucket( m_impl, pos.bucket() );
+        m_impl.erase( bucket_index, pos.slot_index() );
+        return CoreAlgorithms::const_iterator_empty_slot( m_impl, bucket_index, pos.slot_index() );
+    }
 
     bool erase( const T& key ) {
         if ( m_impl.empty() ) {

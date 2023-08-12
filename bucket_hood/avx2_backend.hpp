@@ -231,6 +231,7 @@ class SetImpl {
             __m256i slots = _mm256_load_si256( (const __m256i*)bucket->occupancy_and_hashes );
             int occupied_mask = _mm256_movemask_epi8( slots );
             if ( LIKELY( occupied_mask != ~0 ) ) {
+            finished:
                 ( bucket_start + index_in_bucket )->destroy();
                 bucket->occupancy_and_hashes[ index_in_bucket ] = 0;
                 bucket->probe_lengths[ index_in_bucket ] = 0;
@@ -261,9 +262,11 @@ class SetImpl {
             }
             if ( max_slot == 32 ) {
                 // All probe lengths in next bucket were zero, so we're done.
-                return;
+                goto finished;
             }
             ( bucket_start + index_in_bucket )->get() = std::move( ( next_bucket_start + max_slot )->get() );
+            bucket->occupancy_and_hashes[ index_in_bucket ] = next_bucket->occupancy_and_hashes[ max_slot ];
+            bucket->probe_lengths[ index_in_bucket ] = max_probe_len - 1;
             bucket = next_bucket;
             index_in_bucket = max_slot;
         } while ( true );

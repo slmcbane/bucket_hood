@@ -34,8 +34,7 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
         REQUIRE_MESSAGE( inserted == binserted, "Insertion test failed for x = ", to_insert );
         if ( ( i + 1 ) % granularity == 0 ) {
             for ( int x : ref_set ) {
-                REQUIRE_MESSAGE( !( my_set.find( x ) == my_set.end() ), "Failed finding ", to_insert,
-                                 " in my_set" );
+                REQUIRE_MESSAGE( !( my_set.find( x ) == my_set.end() ), "Failed finding ", x, " in my_set" );
             }
         }
     }

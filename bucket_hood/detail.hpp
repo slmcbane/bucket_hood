@@ -33,7 +33,7 @@ namespace bucket_hood {
 
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
 
-inline constexpr float default_load_factor = 0.95;
+inline constexpr float default_load_factor = 0.999;
 
 static_assert( default_load_factor < 1, "Load factor == 1 does not work" );
 
@@ -166,6 +166,8 @@ struct NotEviction : std::false_type {};
  * All the iterators we need can be built on the SetIterator defined below, which in
  * turn relies on SlotIterator for its implementation.
  */
+
+struct EmptySlotTag {};
 template < class Bucket, class T >
 struct SlotIterator {
     SlotIterator() noexcept = default;
@@ -187,6 +189,14 @@ struct SlotIterator {
         m_mask &= ( ~0u << m_slot_index );
     }
 
+    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot, int slot_index, EmptySlotTag ) noexcept
+        : m_bucket{ bucket }, m_slot{ slot } {
+        assert( m_bucket );
+        m_mask = Bucket::occupied_mask( *m_bucket );
+        m_mask &= ( ~0u << slot_index );
+        scan_to_slot();
+    }
+
     void increment() noexcept { scan_to_slot(); }
 
     const Slot< T >& dereference() const noexcept { return *( m_slot + m_slot_index ); }
@@ -194,6 +204,9 @@ struct SlotIterator {
     friend bool operator==( const SlotIterator& a, const SlotIterator& b ) {
         return a.m_bucket == b.m_bucket && a.m_slot_index == b.m_slot_index;
     }
+
+    const Bucket* bucket() const noexcept { return m_bucket; }
+    int slot_index() const noexcept { return m_slot_index; }
 
   private:
     const Bucket* m_bucket{ nullptr };
@@ -225,6 +238,9 @@ struct SetIterator {
     explicit SetIterator( const Bucket* bucket, Slot< T >* slot, int slot_index ) noexcept
         : m_slot_iterator( bucket, slot, slot_index ) {}
 
+    explicit SetIterator( const Bucket* bucket, Slot< T >* slot, int slot_index, EmptySlotTag ) noexcept
+        : m_slot_iterator( bucket, slot, slot_index, EmptySlotTag{} ) {}
+
     SetIterator& operator++() noexcept {
         m_slot_iterator.increment();
         return *this;
@@ -249,6 +265,9 @@ struct SetIterator {
     reference operator*() const noexcept { return m_slot_iterator.dereference().get(); }
     pointer operator->() const noexcept { return &reference(); }
 
+    const Bucket* bucket() const noexcept { return m_slot_iterator.bucket(); }
+    int slot_index() const noexcept { return m_slot_iterator.slot_index(); }
+
   private:
     SlotIterator< Bucket, T > m_slot_iterator;
 };
@@ -261,8 +280,14 @@ struct SetIterator {
 struct CoreAlgorithms {
 
     template < class Backend >
-    static size_type bucket_index_from_hash( Backend& backend, size_type hash ) noexcept {
+    static size_type bucket_index_from_hash( const Backend& backend, size_type hash ) noexcept {
         return hash >> backend.m_bitshift;
+    }
+
+    template < class Backend >
+    static size_type bucket_index_from_bucket( const Backend& backend,
+                                               const typename Backend::bucket_type* bucket ) {
+        return bucket - backend.m_buckets;
     }
 
     template < class Backend, class S >
@@ -388,6 +413,13 @@ struct CoreAlgorithms {
     static auto const_end( const Backend& backend ) {
         return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
             backend.m_buckets + backend.num_buckets(), nullptr, 0 );
+    }
+
+    template < class Backend >
+    static auto const_iterator_empty_slot( const Backend& backend, size_type bucket_index, int slot_index ) {
+        return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
+            backend.m_buckets + bucket_index, backend.m_slots + Backend::bucket_type::NUM_SLOTS * bucket_index,
+            slot_index, EmptySlotTag{} );
     }
 };
 
