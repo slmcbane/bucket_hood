@@ -106,14 +106,50 @@ TEST_CASE( "[INSERT/ERASE] [TRIVIAL] Very small case w iterators" ) {
     REQUIRE( full_set == full_set2 );
 } // TEST_CASE
 
-TEST_CASE( "[INSERT/ERASE] [MEDIUM] 1000 random 3 insert to 1 erase from [0, 200]" ) {
+TEST_CASE(
+    "[INSERT/ERASE] [MEDIUM] 1000 random 3 insert to 1 erase from [0, 200] with trivial hash function" ) {
     xoshiro256ss generator;
     auto state = generator.state();
 
     INFO( "Initial generator state: ", state[ 0 ], ", ", state[ 1 ], ", ", state[ 2 ], ", ", state[ 3 ] );
 
-    test_insert_erase< NoHash >( generator, 1000, 0.9, 0, 200 );
+    test_insert_erase< NoHash >( generator, 1000, 0.75, 0, 200 );
 } // TEST_CASE
+
+TEST_CASE( "[INSERT/ERASE] [MEDIUM] 1000 random 3 insert to 1 erase from [0, 200] with real hash function" ) {
+    xoshiro256ss generator;
+    auto state = generator.state();
+
+    INFO( "Initial generator state: ", state[ 0 ], ", ", state[ 1 ], ", ", state[ 2 ], ", ", state[ 3 ] );
+
+    test_insert_erase< std::hash< int > >( generator, 1000, 0.75, 0, 200 );
+} // TEST_CASE
+
+TEST_CASE( "[INSERT/ERASE] [LARGE] 100000 random 3 insert to 1 erase from [0, 500] (many collisions) with "
+           "trivial hash function and check every 100" ) {
+    xoshiro256ss generator;
+    auto state = generator.state();
+    INFO( "Initial generator state: ", state[ 0 ], ", ", state[ 1 ], ", ", state[ 2 ], ", ", state[ 3 ] );
+    test_insert_erase< NoHash >( generator, 100000, 0.75, 0, 500 );
+} // TEST_CASE
+
+TEST_CASE(
+    "[INSERT/ERASE] [LARGE] 100000 random 3 insert to 1 erase from [0, 5000] (not too many collisions) with "
+    "real hash function and check every 100" ) {
+    xoshiro256ss generator;
+    auto state = generator.state();
+    INFO( "Initial generator state: ", state[ 0 ], ", ", state[ 1 ], ", ", state[ 2 ], ", ", state[ 3 ] );
+    test_insert_erase< std::hash< int > >( generator, 100000, 0.75, 0, 500 );
+} // TEST_CASE
+  //
+
+TEST_CASE( "[INSERT/ERASE] [HUGE] 100'000'000 random 11 insert to 10 erase from [0, 1000000] with check every "
+           "10000" ) {
+    xoshiro256ss generator;
+    auto state = generator.state();
+    INFO( "Initial generator state: ", state[ 0 ], ", ", state[ 1 ], ", ", state[ 2 ], ", ", state[ 3 ] );
+    test_insert_erase< std::hash< int > >( generator, 100000000, 0.55, 0, 1000000, 10000 );
+}
 
 #endif // SET_INSERT_ERASE_HPP
 
