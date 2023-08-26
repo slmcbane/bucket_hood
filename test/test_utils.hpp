@@ -58,5 +58,67 @@ struct NoHash {
     }
 };
 
+struct CountConstructions {
+    int value;
+
+    CountConstructions( int x ) : value{ x } { value_constructed += 1; }
+    CountConstructions( const CountConstructions& other ) : value{ other.value } { copy_constructed += 1; }
+    CountConstructions( CountConstructions&& other ) : value{ other.value } { move_constructed += 1; }
+    ~CountConstructions() { destroyed += 1; }
+    CountConstructions& operator=( CountConstructions&& other ) {
+        value = other.value;
+        return *this;
+    }
+
+    friend bool operator==( const CountConstructions& a, const CountConstructions& b ) {
+        return a.value == b.value;
+    }
+
+    static void reset_counters() {
+        value_constructed = 0;
+        copy_constructed = 0;
+        move_constructed = 0;
+        destroyed = 0;
+    }
+
+    static size_t value_constructed;
+    static size_t copy_constructed;
+    static size_t move_constructed;
+    static size_t destroyed;
+};
+
+namespace std {
+template <>
+struct hash< ::CountConstructions > {
+    size_t operator()( const CountConstructions& a ) const { return std::hash< int >{}( a.value ); }
+};
+
+} // namespace std
+
+// TODO: actually use this in tests.
+struct NotMoveAssignable {};
+
+template < class T >
+class DebugAllocator {
+    typedef T value_type;
+    typedef std::size_t size_type;
+    typedef std::ptrdiff_t difference_type;
+    typedef std::true_type propagate_on_container_move_assignment;
+    typedef std::true_type is_always_equal;
+
+    static size_t allocated;
+    static size_t deallocated;
+
+    T* allocate( size_type n ) {
+        allocated += n * sizeof( T );
+        return new T[ n ];
+    }
+
+    void deallocate( T* p, size_type n ) {
+        deallocated += sizeof( T ) * n;
+        delete[] p;
+    }
+};
+
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
 

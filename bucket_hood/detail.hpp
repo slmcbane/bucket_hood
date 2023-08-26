@@ -123,9 +123,9 @@ struct mixed_hash {
         if constexpr ( known_good< Hash >{} ) {
             return base_hash;
         } else if constexpr ( sizeof( base_hash ) <= sizeof( uint32_t ) ) {
-            return hash_mix( uint32_t( x ) );
+            return hash_mix( uint32_t( base_hash ) );
         } else {
-            return hash_mix( uint64_t( x ) );
+            return hash_mix( uint64_t( base_hash ) );
         }
     }
 };
@@ -135,14 +135,13 @@ template < class T >
 struct default_assign {
     default_assign( T& x ) : m_ref( x ) {}
 
-    const default_assign& operator=( const T& other ) const {
-        m_ref = other;
-        return *this;
-    }
+    void assign( const T& other ) const { m_ref = other; }
 
-    const default_assign& operator=( T&& other ) const {
-        m_ref = std::move( other );
-        return *this;
+    void assign( T&& other ) const { m_ref = std::move( other ); }
+
+    template < class... Args >
+    void assign( Args&&... args ) const {
+        m_ref = T( std::forward< Args >( args )... );
     }
 
   private:
@@ -290,8 +289,8 @@ struct CoreAlgorithms {
         return bucket - backend.m_buckets;
     }
 
-    template < class Backend, class S >
-    static void do_insert( Backend& backend, S&& key, uint8_t low_bits, const BucketAndSlot& where ) {
+    template < class Backend, class... Args >
+    static void do_insert( Backend& backend, uint8_t low_bits, const BucketAndSlot& where, Args&&... args ) {
         assert( !where.key_exists() );
         assert( !where.not_found() );
         assert( low_bits & 0x80 );
@@ -300,9 +299,9 @@ struct CoreAlgorithms {
         auto& slot = backend.m_slots[ where.bucket_index * Backend::bucket_type::NUM_SLOTS + slot_index ];
         if ( where.evict() ) {
             evict( backend, where );
-            backend.assigner( slot.get() ) = std::forward< S >( key );
+            backend.assigner( slot.get() ).assign( std::forward< Args >( args )... );
         } else {
-            slot.emplace( std::forward< S >( key ) );
+            slot.emplace( std::forward< Args >( args )... );
         }
 
         auto& bucket = backend.m_buckets[ where.bucket_index ];
@@ -389,7 +388,7 @@ struct CoreAlgorithms {
                     assert( !where.not_found() );
                     assert( !where.key_exists() );
 
-                    do_insert( backend, std::move( key ), low_bits, where );
+                    do_insert( backend, low_bits, where, std::move( key ) );
                 }
             } );
 

@@ -7,11 +7,7 @@
 #include "unordered_dense.h"
 #include <random>
 
-template < class T >
-using udset = ankerl::unordered_dense::set< T >;
-
-template < class T, class Hash = std::hash< T > >
-using bhset = bucket_hood::unordered_set< T, Hash >;
+#include "set_insert_only_tests.hpp"
 
 template < class Hash >
 void test_insert_erase( xoshiro256ss& generator, int count, float insert_probability, int min, int max,

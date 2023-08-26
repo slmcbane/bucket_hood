@@ -3,6 +3,7 @@
 
 #include "avx2_backend.hpp"
 #include "detail.hpp"
+#include "traits.hpp"
 
 namespace bucket_hood {
 
@@ -13,7 +14,7 @@ struct SetBackendSelector {
 #endif
 };
 
-template < class T, class Hash = std::hash< T >, class Compare = std::equal_to< T >,
+template < class T, class Hash = std::hash< T >, class Compare = std::equal_to<>,
            class Allocator = std::allocator< T > >
 class unordered_set {
   public:
@@ -32,29 +33,39 @@ class unordered_set {
     typedef typename std::allocator_traits< Allocator >::pointer pointer;
     typedef typename std::allocator_traits< Allocator >::const_pointer const_pointer;
 
-    std::pair< iterator, bool > insert( const T& key ) {
-        if ( UNLIKELY( m_impl.uninitialized() ) ) {
-            m_impl.initialize();
+    std::pair< iterator, bool > insert( const T& key ) { return emplace( key ); }
+
+    std::pair< iterator, bool > insert( T&& key ) { return emplace( std::move( key ) ); }
+
+    template < class... Args >
+    std::pair< iterator, bool > emplace( Args&&... args ) {
+        if constexpr ( is_transparent_hash< Hash, Args... >::value &&
+                       is_transparent_comparison< Compare, Args... >::value ) {
+            if ( UNLIKELY( m_impl.uninitialized() ) ) {
+                m_impl.initialize();
+            }
+            using Hasher = mixed_hash< typename is_transparent_hash< Hash, Args... >::hash, Args... >;
+            const auto hash = Hasher{}( std::forward< Args >( args )... );
+            size_type bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
+            const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
+            BucketAndSlot where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOrInsert >(
+                std::forward< Args >( args )..., bucket_index, low_bits );
+
+            if ( where.not_found() ) {
+                CoreAlgorithms::resize( m_impl, m_impl.num_buckets() * 2, m_load_factor );
+                bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
+                where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOrInsert >(
+                    std::forward< Args >( args )..., bucket_index, low_bits );
+            }
+
+            if ( !where.key_exists() ) {
+                CoreAlgorithms::do_insert( m_impl, low_bits, where, std::forward< Args >( args )... );
+            }
+
+            return { CoreAlgorithms::make_const_iterator( m_impl, where ), !where.key_exists() };
+        } else {
+            return insert( T( std::forward< Args >( args )... ) );
         }
-
-        const auto hash = hasher{}( key );
-        size_type bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
-        const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
-        BucketAndSlot where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOrInsert >(
-            key, bucket_index, low_bits );
-
-        if ( where.not_found() ) {
-            CoreAlgorithms::resize( m_impl, m_impl.num_buckets() * 2, m_load_factor );
-            bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
-            where = m_impl.template find_or_insert< NotEviction, NotRehash, FindOrInsert >( key, bucket_index,
-                                                                                            low_bits );
-        }
-
-        if ( !where.key_exists() ) {
-            CoreAlgorithms::do_insert( m_impl, key, low_bits, where );
-        }
-
-        return { CoreAlgorithms::make_const_iterator( m_impl, where ), !where.key_exists() };
     }
 
     iterator find( const T& key ) const {
