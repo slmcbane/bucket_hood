@@ -37,14 +37,14 @@ struct Bucket {
     }
 };
 
+// Inherits from Allocator to take advantage of the empty base class optimization.
 template < class T, class Hash, class Compare, class Assign, class Allocator >
-class SetImpl {
+class SetImpl : private Allocator {
   private:
     Slot< T >* m_slots{ nullptr };
     Bucket* m_buckets{ nullptr };
     size_type m_num_occupied{ 0 };
     size_type m_rehash{ 0 };
-    Allocator m_allocator;
     uint8_t m_bitshift{ hash_bits< Hash, T > };
 
     /*
@@ -67,6 +67,8 @@ class SetImpl {
             }
         }
     }
+
+    Allocator& allocator() { return static_cast< Allocator& >( *this ); }
 
   public:
     typedef typename std::allocator_traits< Allocator >::template rebind_alloc< Slot< T > > SlotAlloc;
@@ -92,8 +94,8 @@ class SetImpl {
 
     void initialize() {
         assert( uninitialized() );
-        m_slots = rebind_allocate< SlotAlloc >( m_allocator, 2 * Bucket::NUM_SLOTS );
-        m_buckets = rebind_allocate< BucketAlloc >( m_allocator, 3 );
+        m_slots = rebind_allocate< SlotAlloc >( allocator(), 2 * Bucket::NUM_SLOTS );
+        m_buckets = rebind_allocate< BucketAlloc >( allocator(), 3 );
         std::memset( m_buckets, 0, sizeof( Bucket ) * 2 );
         m_buckets[ 2 ].setup_end_sentinel();
         m_rehash = 2 * Bucket::NUM_SLOTS * default_load_factor;
@@ -112,8 +114,35 @@ class SetImpl {
                                   []( Slot< T >* slot, int ) { slot->destroy(); } );
         }
 
-        rebind_deallocate< SlotAlloc >( m_allocator, m_slots, Bucket::NUM_SLOTS * num_buckets );
-        rebind_deallocate< BucketAlloc >( m_allocator, m_buckets, num_buckets + 1 );
+        rebind_deallocate< SlotAlloc >( allocator(), m_slots, Bucket::NUM_SLOTS * num_buckets );
+        rebind_deallocate< BucketAlloc >( allocator(), m_buckets, num_buckets + 1 );
+    }
+
+    SetImpl& operator=( SetImpl&& other ) {
+        static_assert( std::allocator_traits< Allocator >::propagate_on_container_move_assignment::value,
+                       "TODO: move assignment if allocator does not propagate" );
+        if ( m_slots ) {
+            size_type num_buckets = size_type( 1 ) << ( hash_bits< Hash, T > - m_bitshift );
+            if constexpr ( !std::is_trivially_destructible_v< T > ) {
+                visit_occupied_slots( m_buckets, m_slots, num_buckets,
+                                      []( Slot< T >* slot, int ) { slot->destroy(); } );
+            }
+
+            rebind_deallocate< SlotAlloc >( allocator(), m_slots, Bucket::NUM_SLOTS * num_buckets );
+            rebind_deallocate< BucketAlloc >( allocator(), m_buckets, num_buckets + 1 );
+        }
+        allocator() = std::move( other.allocator() );
+        m_slots = other.m_slots;
+        other.m_slots = nullptr;
+        m_buckets = other.m_buckets;
+        other.m_buckets = nullptr;
+        m_num_occupied = other.m_num_occupied;
+        other.m_num_occupied = 0;
+        m_rehash = other.m_rehash;
+        other.m_rehash = 0;
+        m_bitshift = other.m_bitshift;
+        other.m_bitshift = hash_bits< Hash, T >;
+        return *this;
     }
 
     /*

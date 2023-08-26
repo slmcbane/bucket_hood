@@ -359,9 +359,9 @@ struct CoreAlgorithms {
         auto old_slots = backend.m_slots;
         auto old_buckets = backend.m_buckets;
         backend.m_slots = rebind_allocate< typename Backend::SlotAlloc >(
-            backend.m_allocator, new_size * Backend::bucket_type::NUM_SLOTS );
+            backend.allocator(), new_size * Backend::bucket_type::NUM_SLOTS );
         backend.m_buckets =
-            rebind_allocate< typename Backend::BucketAlloc >( backend.m_allocator, new_size + 1 );
+            rebind_allocate< typename Backend::BucketAlloc >( backend.allocator(), new_size + 1 );
         std::memset( backend.m_buckets, 0, new_size * sizeof( typename Backend::bucket_type ) );
         backend.m_buckets[ new_size ].setup_end_sentinel();
         backend.m_bitshift -= 1;
@@ -392,9 +392,9 @@ struct CoreAlgorithms {
                 }
             } );
 
-        rebind_deallocate< typename Backend::SlotAlloc >( backend.m_allocator, old_slots,
+        rebind_deallocate< typename Backend::SlotAlloc >( backend.allocator(), old_slots,
                                                           num_buckets * Backend::bucket_type::NUM_SLOTS );
-        rebind_deallocate< typename Backend::BucketAlloc >( backend.m_allocator, old_buckets, num_buckets + 1 );
+        rebind_deallocate< typename Backend::BucketAlloc >( backend.allocator(), old_buckets, num_buckets + 1 );
     }
 
     template < class Backend >
