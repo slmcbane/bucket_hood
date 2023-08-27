@@ -34,6 +34,8 @@ struct is_transparent_hash< std::hash< T >, T > : std::true_type {
     typedef std::hash< T > hash;
 };
 
+static_assert( is_transparent_hash< std::hash< int >, int >::value );
+
 /*
  * Same purpose as above: allow avoiding unnecessary constructors if two types can be compared using
  * Compare without converting one to the other.
@@ -49,6 +51,38 @@ struct is_transparent_comparison< std::equal_to< std::string >, std::string_view
 
 template < class T >
 struct is_transparent_comparison< std::equal_to< T >, T > : std::true_type {};
+
+/*
+ * Find a hash function for Args... if one exists. If sizeof...(Args) == 1 and std::decay_t<Args> is T,
+ * then this is the hash function given. Otherwise, use the 'transparent' trait to determine it.
+ */
+template < class Hash, class T, class... Args >
+struct hash_finder : is_transparent_hash< Hash, Args... > {};
+
+template < class Hash, class T >
+struct hash_finder< Hash, T, const T& > : std::true_type {
+    typedef Hash hash;
+};
+
+template < class Hash, class T >
+struct hash_finder< Hash, T, T&& > : std::true_type {
+    typedef Hash hash;
+};
+
+template < class Hash, class T >
+struct hash_finder< Hash, T, T& > : std::true_type {
+    typedef Hash hash;
+};
+
+template < class Hash, class T >
+struct hash_finder< Hash, T, const T&& > : std::true_type {
+    typedef Hash hash;
+};
+
+template < class Hash, class T >
+struct hash_finder< Hash, T, T > : std::true_type {
+    typedef Hash hash;
+};
 
 } // namespace bucket_hood
 

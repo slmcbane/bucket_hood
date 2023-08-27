@@ -39,12 +39,13 @@ class unordered_set {
 
     template < class... Args >
     std::pair< iterator, bool > emplace( Args&&... args ) {
-        if constexpr ( is_transparent_hash< Hash, Args... >::value &&
-                       is_transparent_comparison< Compare, Args... >::value ) {
+        constexpr bool transparent_comparison =
+            is_transparent_comparison< Compare, std::decay_t< Args >... >::value;
+        if constexpr ( hash_finder< Hash, T, Args... >::value && transparent_comparison ) {
             if ( UNLIKELY( m_impl.uninitialized() ) ) {
                 m_impl.initialize();
             }
-            using Hasher = mixed_hash< typename is_transparent_hash< Hash, Args... >::hash, Args... >;
+            using Hasher = mixed_hash< typename hash_finder< Hash, T, Args... >::hash, Args... >;
             const auto hash = Hasher{}( std::forward< Args >( args )... );
             size_type bucket_index = CoreAlgorithms::bucket_index_from_hash( m_impl, hash );
             const uint8_t low_bits = ( hash & 0x7f ) | 0x80;
