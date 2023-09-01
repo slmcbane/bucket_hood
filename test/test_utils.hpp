@@ -102,10 +102,12 @@ struct NotMoveAssignable {};
 struct AllocatorCounters {
     static size_t allocated;
     static size_t deallocated;
+    static size_t peak;
 
     static void reset() {
         allocated = 0;
         deallocated = 0;
+        peak = 0;
     }
 };
 
@@ -129,6 +131,8 @@ class DebugAllocator : private AllocatorCounters {
 
     T* allocate( size_type n ) {
         allocated += n * sizeof( T );
+        size_t diff = allocated - deallocated;
+        AllocatorCounters::peak = std::max( diff, AllocatorCounters::peak );
         return new T[ n ];
     }
 

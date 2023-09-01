@@ -9,7 +9,7 @@
 
 using namespace ankerl;
 
-constexpr static int count = 100'000;
+constexpr static int count = 100'000'000;
 
 template < typename Set >
 void bench( nanobench::Bench& bench, const char* name ) {
@@ -53,6 +53,7 @@ void bench( nanobench::Bench& bench, const char* name ) {
 
 size_t AllocatorCounters::allocated = 0;
 size_t AllocatorCounters::deallocated = 0;
+size_t AllocatorCounters::peak = 0;
 
 int main() {
     nanobench::Bench b;
@@ -61,11 +62,13 @@ int main() {
     bench< unordered_dense::set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >( b,
                                                                                                     "ankerl" );
     std::cout << "unordered_dense allocated " << AllocatorCounters::allocated << " B\n";
+    std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
     bench< bucket_hood::unordered_set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >(
         b, "bucket_hood" );
     assert( AllocatorCounters::allocated == AllocatorCounters::deallocated );
     std::cout << "bucket_hood allocated " << AllocatorCounters::allocated << " B\n";
+    std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
     bench< robin_hood::unordered_flat_set< int, std::hash< int >, std::equal_to<> > >( b, "robin_hood" );
     std::cout << "robin_hood allocated " << AllocatorCounters::allocated << " B\n";
