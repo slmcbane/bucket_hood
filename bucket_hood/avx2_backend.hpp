@@ -160,12 +160,16 @@ class SetImpl : private Allocator {
             return;
         }
 
-        visit_occupied_slots( m_buckets, m_slots, num_buckets(),
-                              []( Bucket& bucket, Slot< T >* slot, size_t, int slot_index ) {
-                                  slot->destroy();
-                                  bucket.occupancy_and_hashes[ slot_index ] = 0;
-                                  bucket.probe_lengths[ slot_index ] = 0;
-                              } );
+        if constexpr ( !std::is_trivially_destructible_v< T > ) {
+            visit_occupied_slots( m_buckets, m_slots, num_buckets(),
+                                  []( Bucket& bucket, Slot< T >* slot, size_t, int slot_index ) {
+                                      slot->destroy();
+                                      bucket.occupancy_and_hashes[ slot_index ] = 0;
+                                      bucket.probe_lengths[ slot_index ] = 0;
+                                  } );
+        } else {
+            std::memset( m_buckets, 0, sizeof( Bucket ) * num_buckets() );
+        }
 
         m_num_occupied = 0;
     }
