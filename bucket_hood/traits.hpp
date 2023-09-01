@@ -84,6 +84,20 @@ struct hash_finder< Hash, T, T > : std::true_type {
     typedef Hash hash;
 };
 
+/*
+ * Helper traits to deal with allocators and whether they propagate or not.
+ */
+template < class Alloc >
+constexpr inline bool is_always_equal = std::allocator_traits< Alloc >::is_always_equal;
+
+template < class Alloc >
+constexpr inline bool move_assign_propagates =
+    std::allocator_traits< Alloc >::propagate_on_container_move_assignment;
+
+template < class Alloc >
+constexpr inline bool copy_assign_propagates =
+    std::allocator_traits< Alloc >::propagate_on_container_copy_assignment;
+
 } // namespace bucket_hood
 
 #endif // BUCKET_HOOD_TRAITS_HPP

@@ -369,7 +369,7 @@ struct CoreAlgorithms {
         backend.m_rehash = float( new_size * Backend::bucket_type::NUM_SLOTS ) * load_factor;
 
         backend.template visit_occupied_slots(
-            old_buckets, old_slots, num_buckets, [ &backend ]( auto slot, int i ) {
+            old_buckets, old_slots, num_buckets, [ &backend ]( auto&, auto slot, size_t, int i ) {
                 auto& key = slot->get();
                 size_type hash = typename Backend::hash_type{}( slot->get() );
                 size_type bucket_index = hash >> backend.m_bitshift;

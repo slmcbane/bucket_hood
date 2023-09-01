@@ -26,5 +26,23 @@ TEST_CASE( "[RESOURCE] [TRIVIAL] A set with only a few elements" ) {
     REQUIRE( CountConstructions::destroyed == 6 );
 } // TEST_CASE
 
+TEST_CASE( "[RESOURCE] [TRIVIAL] Copy construct a small set" ) {
+    {
+        CountConstructions::reset_counters();
+        bucket_hood::unordered_set< CountConstructions > set;
+        set.emplace( 1 );
+        set.emplace( 2 );
+        set.emplace( 3 );
+        set.insert( CountConstructions( 4 ) );
+
+        auto set2 = set;
+    }
+
+    REQUIRE( CountConstructions::value_constructed == 4 );
+    REQUIRE( CountConstructions::move_constructed == 4 );
+    REQUIRE( CountConstructions::copy_constructed == 4 );
+    REQUIRE( CountConstructions::destroyed == 12 );
+} // TEST_CASE
+
 #endif // SET_RESOURCE_MANAGEMENT_HPP
 
