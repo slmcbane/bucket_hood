@@ -33,6 +33,9 @@ class unordered_set {
     typedef typename std::allocator_traits< Allocator >::pointer pointer;
     typedef typename std::allocator_traits< Allocator >::const_pointer const_pointer;
 
+    void clear() { m_impl.clear(); }
+    size_type size() const { return m_impl.size(); }
+
     std::pair< iterator, bool > insert( const T& key ) { return emplace( key ); }
 
     std::pair< iterator, bool > insert( T&& key ) { return emplace( std::move( key ) ); }

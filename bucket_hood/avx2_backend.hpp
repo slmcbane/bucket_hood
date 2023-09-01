@@ -110,6 +110,7 @@ class SetImpl : private Allocator {
         return size_type( 1 ) << ( hash_bits< Hash, T > - m_bitshift );
     }
 
+    size_type size() const { return m_num_occupied; }
     bool empty() const { return m_num_occupied == 0; }
 
     bool uninitialized() const noexcept { return m_bitshift == hash_bits< Hash, T >; }
@@ -354,6 +355,7 @@ class SetImpl : private Allocator {
                 ( bucket_start + index_in_bucket )->destroy();
                 bucket->occupancy_and_hashes[ index_in_bucket ] = 0;
                 bucket->probe_lengths[ index_in_bucket ] = 0;
+                m_num_occupied--;
                 return;
             }
 

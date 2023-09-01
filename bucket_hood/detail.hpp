@@ -33,7 +33,7 @@ namespace bucket_hood {
 
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
 
-inline constexpr float default_load_factor = 0.999;
+inline constexpr float default_load_factor = 0.95;
 
 static_assert( default_load_factor < 1, "Load factor == 1 does not work" );
 

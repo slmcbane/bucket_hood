@@ -8,3 +8,5 @@ size_t CountConstructions::value_constructed = 0;
 size_t CountConstructions::copy_constructed = 0;
 size_t CountConstructions::move_constructed = 0;
 size_t CountConstructions::destroyed = 0;
+size_t AllocatorCounters::allocated = 0;
+size_t AllocatorCounters::deallocated = 0;

@@ -1,6 +1,7 @@
 #ifndef BUCKET_HOOD_TEST_UTILS_HPP
 #define BUCKET_HOOD_TEST_UTILS_HPP
 
+#include <chrono>
 #include <cstdint>
 #include <random>
 
@@ -98,16 +99,33 @@ struct hash< ::CountConstructions > {
 // TODO: actually use this in tests.
 struct NotMoveAssignable {};
 
+struct AllocatorCounters {
+    static size_t allocated;
+    static size_t deallocated;
+
+    static void reset() {
+        allocated = 0;
+        deallocated = 0;
+    }
+};
+
 template < class T >
-class DebugAllocator {
+class DebugAllocator : private AllocatorCounters {
+  public:
     typedef T value_type;
+    typedef T* pointer;
     typedef std::size_t size_type;
     typedef std::ptrdiff_t difference_type;
     typedef std::true_type propagate_on_container_move_assignment;
     typedef std::true_type is_always_equal;
 
-    static size_t allocated;
-    static size_t deallocated;
+    DebugAllocator() = default;
+
+    template < class U >
+    DebugAllocator( DebugAllocator< U >&& ) {}
+
+    template < class U >
+    DebugAllocator( const DebugAllocator< U >& ) {}
 
     T* allocate( size_type n ) {
         allocated += n * sizeof( T );
@@ -118,6 +136,23 @@ class DebugAllocator {
         deallocated += sizeof( T ) * n;
         delete[] p;
     }
+};
+
+class Stopwatch {
+  public:
+    Stopwatch() : m_start( std::chrono::steady_clock::now() ) {}
+
+    template < class Duration >
+    auto elapsed() const {
+        auto now = std::chrono::steady_clock::now();
+        auto duration = now - m_start;
+        return std::chrono::duration_cast< Duration >( duration ).count();
+    }
+
+    void reset() { m_start = std::chrono::steady_clock::now(); }
+
+  private:
+    std::chrono::time_point< std::chrono::steady_clock > m_start;
 };
 
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
