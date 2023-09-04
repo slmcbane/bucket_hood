@@ -9,10 +9,8 @@
 
 using namespace ankerl;
 
-constexpr static int count = 100'000'000;
-
 template < typename Set >
-void bench( nanobench::Bench& bench, const char* name ) {
+void bench( nanobench::Bench& bench, const char* name, int count ) {
     std::array< size_t, 4 > elapsed_times = { 0, 0, 0, 0 };
     bench.run( name, [ & ]() {
         Set set;
@@ -55,22 +53,24 @@ size_t AllocatorCounters::allocated = 0;
 size_t AllocatorCounters::deallocated = 0;
 size_t AllocatorCounters::peak = 0;
 
-int main() {
+int main( int argc, char* argv[] ) {
+    assert( argc == 2 && "Need 1 argument - count" );
+    int count = atoi( argv[ 1 ] );
     nanobench::Bench b;
     b.title( "Test inserting only into a hash set" ).relative( true ).performanceCounters( true ).warmup( 1 );
 
-    bench< unordered_dense::set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >( b,
-                                                                                                    "ankerl" );
+    bench< unordered_dense::set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >( b, "ankerl",
+                                                                                                    count );
     std::cout << "unordered_dense allocated " << AllocatorCounters::allocated << " B\n";
     std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
     bench< bucket_hood::unordered_set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >(
-        b, "bucket_hood" );
+        b, "bucket_hood", count );
     assert( AllocatorCounters::allocated == AllocatorCounters::deallocated );
     std::cout << "bucket_hood allocated " << AllocatorCounters::allocated << " B\n";
     std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
-    bench< robin_hood::unordered_flat_set< int, std::hash< int >, std::equal_to<> > >( b, "robin_hood" );
+    bench< robin_hood::unordered_flat_set< int, std::hash< int >, std::equal_to<> > >( b, "robin_hood", count );
     std::cout << "robin_hood allocated " << AllocatorCounters::allocated << " B\n";
 }
 
