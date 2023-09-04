@@ -21,29 +21,39 @@ namespace bucket_hood {
 
 namespace avx2 {
 
+template < class T >
 struct Bucket {
     static constexpr int NUM_SLOTS = 32;
-    alignas( __m256i ) uint8_t occupancy_and_hashes[ 32 ];
-    alignas( __m256i ) uint8_t probe_lengths[ 32 ];
+    alignas( __m256i ) uint8_t header[ 64 ];
+    Slot< T > slots[ NUM_SLOTS ];
 
-    static int occupied_mask( const Bucket& bucket ) {
-        __m256i slots = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes );
+    ALWAYS_INLINE static int occupied_mask( const Bucket& bucket ) noexcept {
+        __m256i slots = _mm256_load_si256( (const __m256i*)bucket.header );
         return _mm256_movemask_epi8( slots );
     }
 
-    void setup_end_sentinel() noexcept {
-        for ( int i = 0; i < 32; ++i ) {
-            occupancy_and_hashes[ i ] = 0xff;
-        }
-    }
+    ALWAYS_INLINE void setup_end_sentinel() noexcept { std::fill_n( header, 32, 0xff ); }
+
+    ALWAYS_INLINE const uint8_t* occupancy_and_hashes() const noexcept { return header; }
+    ALWAYS_INLINE uint8_t* occupancy_and_hashes() noexcept { return header; }
+    ALWAYS_INLINE const uint8_t* probe_lengths() const noexcept { return header + 32; }
+    ALWAYS_INLINE uint8_t* probe_lengths() noexcept { return header + 32; }
 };
+
+// Check that even if T is non-trivial Bucket< T > is trivial.
+static_assert( std::is_trivially_copyable_v< Bucket< std::unique_ptr< int > > > );
 
 // Inherits from Allocator to take advantage of the empty base class optimization.
 template < class T, class Hash, class Compare, class Assign, class Allocator >
 class SetImpl : private Allocator {
+  public:
+    typedef Bucket< T > bucket_type;
+    typedef typename std::allocator_traits< Allocator >::template rebind_alloc< bucket_type > BucketAlloc;
+    typedef std::invoke_result_t< Hash, T > hash_result;
+    typedef Hash hash_type;
+
   private:
-    Slot< T >* m_slots{ nullptr };
-    Bucket* m_buckets{ nullptr };
+    Bucket< T >* m_buckets{ nullptr };
     size_type m_num_occupied{ 0 };
     size_type m_rehash{ 0 };
     uint8_t m_bitshift{ hash_bits< Hash, T > };
@@ -54,38 +64,35 @@ class SetImpl : private Allocator {
      * slot, that is, f( Slot<T>*, int i ) with i < 32.
      */
     template < class F >
-    static ALWAYS_INLINE void visit_occupied_slots( Bucket* buckets, Slot< T >* slots, size_type num_buckets,
-                                                    F&& f ) {
-        static_assert( std::is_invocable_v< F, Bucket&, Slot< T >*, size_t, int >,
+    static ALWAYS_INLINE void visit_occupied_slots( bucket_type* buckets, size_type num_buckets, F&& f ) {
+        static_assert( std::is_invocable_v< F, bucket_type&, size_t, int >,
                        "The callable in visit_occupied_slots takes a pointer to Bucket, a pointer to Slot<T>, "
                        "the bucket index, and the slot index" );
         for ( size_type bi = 0; bi < num_buckets; ++bi ) {
-            Bucket& bucket = buckets[ bi ];
-            __m256i occupancy_and_hashes = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes );
+            bucket_type& bucket = buckets[ bi ];
+            __m256i occupancy_and_hashes = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes() );
             int occupied_mask = _mm256_movemask_epi8( occupancy_and_hashes );
-            Slot< T >* bucket_start = slots + Bucket::NUM_SLOTS * bi;
 
             while ( occupied_mask ) {
                 int i = CTZ( occupied_mask );
                 occupied_mask ^= ( 1 << i );
-                std::invoke( f, bucket, bucket_start + i, bi, i );
+                std::invoke( f, bucket, bi, i );
             }
         }
     }
 
     void copy_buckets_from( const SetImpl& other, size_t num_buckets ) {
-        std::memset( m_buckets, 0, num_buckets * sizeof( Bucket ) );
+        std::memset( m_buckets, 0, num_buckets * sizeof( bucket_type ) );
         m_buckets[ num_buckets ].setup_end_sentinel();
         m_num_occupied = other.m_num_occupied;
         m_rehash = other.m_rehash;
         m_bitshift = other.m_bitshift;
         visit_occupied_slots(
-            other.m_buckets, other.m_slots, num_buckets,
-            [ this ]( auto& bucket, auto* slot, size_t bucket_index, int slot_index ) {
-                m_buckets[ bucket_index ].occupancy_and_hashes[ slot_index ] =
-                    bucket.occupancy_and_hashes[ slot_index ];
-                m_buckets[ bucket_index ].probe_lengths[ slot_index ] = bucket.probe_lengths[ slot_index ];
-                m_slots[ bucket_index * Bucket::NUM_SLOTS + slot_index ].emplace( slot->get() );
+            other.m_buckets, num_buckets, [ this ]( auto& bucket, size_t bucket_index, int slot_index ) {
+                m_buckets[ bucket_index ].occupancy_and_hashes()[ slot_index ] =
+                    bucket.occupancy_and_hashes()[ slot_index ];
+                m_buckets[ bucket_index ].probe_lengths()[ slot_index ] = bucket.probe_lengths()[ slot_index ];
+                m_buckets[ bucket_index ].slots[ slot_index ].emplace( bucket.slots[ slot_index ].get() );
             } );
     }
 
@@ -93,12 +100,6 @@ class SetImpl : private Allocator {
     const Allocator& allocator() const { return static_cast< const Allocator& >( *this ); }
 
   public:
-    typedef typename std::allocator_traits< Allocator >::template rebind_alloc< Slot< T > > SlotAlloc;
-    typedef typename std::allocator_traits< Allocator >::template rebind_alloc< Bucket > BucketAlloc;
-    typedef std::invoke_result_t< Hash, T > hash_result;
-    typedef Bucket bucket_type;
-    typedef Hash hash_type;
-
     friend struct bucket_hood::CoreAlgorithms;
 
     static Assign assigner( T& dst ) { return Assign( dst ); }
@@ -117,11 +118,10 @@ class SetImpl : private Allocator {
 
     void initialize() {
         assert( uninitialized() );
-        m_slots = rebind_allocate< SlotAlloc >( allocator(), 2 * Bucket::NUM_SLOTS );
         m_buckets = rebind_allocate< BucketAlloc >( allocator(), 3 );
-        std::memset( m_buckets, 0, sizeof( Bucket ) * 2 );
+        std::memset( m_buckets, 0, sizeof( bucket_type ) * 2 );
         m_buckets[ 2 ].setup_end_sentinel();
-        m_rehash = 2 * Bucket::NUM_SLOTS * default_load_factor;
+        m_rehash = 2 * bucket_type::NUM_SLOTS * default_load_factor;
         m_bitshift -= 1;
     }
 
@@ -135,40 +135,39 @@ class SetImpl : private Allocator {
         }
 
         size_t nb = other.num_buckets();
-        m_slots = rebind_allocate< SlotAlloc >( allocator(), nb * Bucket::NUM_SLOTS );
         m_buckets = rebind_allocate< BucketAlloc >( allocator(), nb + 1 );
         copy_buckets_from( other, nb );
     }
 
     ~SetImpl() {
-        if ( !m_slots )
+        if ( !m_buckets )
             return;
 
         if constexpr ( !std::is_trivially_destructible_v< T > ) {
             if ( m_num_occupied ) {
-                visit_occupied_slots( m_buckets, m_slots, num_buckets(),
-                                      []( Bucket&, Slot< T >* slot, size_t, int ) { slot->destroy(); } );
+                visit_occupied_slots( m_buckets, num_buckets(),
+                                      []( bucket_type& bucket, size_t, int slot_index ) {
+                                          bucket.slots[ slot_index ].destroy();
+                                      } );
             }
         }
 
-        rebind_deallocate< SlotAlloc >( allocator(), m_slots, Bucket::NUM_SLOTS * num_buckets() );
         rebind_deallocate< BucketAlloc >( allocator(), m_buckets, num_buckets() + 1 );
     }
 
     void clear() {
-        if ( !m_slots || !m_num_occupied ) {
+        if ( !m_buckets || !m_num_occupied ) {
             return;
         }
 
         if constexpr ( !std::is_trivially_destructible_v< T > ) {
-            visit_occupied_slots( m_buckets, m_slots, num_buckets(),
-                                  []( Bucket& bucket, Slot< T >* slot, size_t, int slot_index ) {
-                                      slot->destroy();
-                                      bucket.occupancy_and_hashes[ slot_index ] = 0;
-                                      bucket.probe_lengths[ slot_index ] = 0;
-                                  } );
+            visit_occupied_slots( m_buckets, num_buckets(), []( bucket_type& bucket, size_t, int slot_index ) {
+                bucket.slots[ slot_index ].destroy();
+                bucket.occupancy_and_hashes()[ slot_index ] = 0;
+                bucket.probe_lengths()[ slot_index ] = 0;
+            } );
         } else {
-            std::memset( m_buckets, 0, sizeof( Bucket ) * num_buckets() );
+            std::memset( m_buckets, 0, sizeof( bucket_type ) * num_buckets() );
         }
 
         m_num_occupied = 0;
@@ -183,19 +182,20 @@ class SetImpl : private Allocator {
                            std::allocator_traits< Allocator >::is_always_equal::value,
                        "TODO: move assignment if allocator does not propagate" );
 
-        if ( m_slots ) {
+        if ( m_buckets ) {
             size_type num_buckets = size_type( 1 ) << ( hash_bits< Hash, T > - m_bitshift );
             if constexpr ( !std::is_trivially_destructible_v< T > ) {
-                visit_occupied_slots( m_buckets, m_slots, num_buckets,
-                                      []( Bucket&, Slot< T >* slot, size_t, int ) { slot->destroy(); } );
+                visit_occupied_slots( m_buckets, num_buckets,
+                                      []( bucket_type& bucket, size_t, int slot_index ) {
+                                          bucket.slots[ slot_index ].destroy();
+                                      } );
             }
 
-            rebind_deallocate< SlotAlloc >( allocator(), m_slots, Bucket::NUM_SLOTS * num_buckets );
             rebind_deallocate< BucketAlloc >( allocator(), m_buckets, num_buckets + 1 );
         }
-        allocator() = std::move( other.allocator() );
-        m_slots = other.m_slots;
-        other.m_slots = nullptr;
+        if constexpr ( !is_always_equal< Allocator > ) {
+            allocator() = std::move( other.allocator() );
+        }
         m_buckets = other.m_buckets;
         other.m_buckets = nullptr;
         m_num_occupied = other.m_num_occupied;
@@ -218,23 +218,22 @@ class SetImpl : private Allocator {
                        "TODO: copy assignment if allocator does not propagate" );
 
         size_t new_num_buckets = other.num_buckets();
-        if ( m_slots ) {
+        if ( m_buckets ) {
             if constexpr ( !std::is_trivially_destructible_v< T > ) {
-                visit_occupied_slots( m_buckets, m_slots, num_buckets(),
-                                      []( Bucket&, Slot< T >* slot, size_t, int ) { slot->destroy(); } );
+                visit_occupied_slots( m_buckets, num_buckets(),
+                                      []( bucket_type& bucket, size_t, int slot_index ) {
+                                          bucket.slots[ slot_index ].destroy();
+                                      } );
             }
 
             // If my number of buckets is != other's number of buckets, we free our bucket and slot
             // allocations and allocate new ones. We do this even if we have more buckets, preferring
             // to be conservative with memory rather than retain a larger amount of storage.
             if ( m_bitshift != other.m_bitshift ) {
-                rebind_deallocate< SlotAlloc >( allocator(), m_slots, Bucket::NUM_SLOTS * num_buckets() );
                 rebind_deallocate< BucketAlloc >( allocator(), m_buckets, num_buckets() + 1 );
-                m_slots = rebind_allocate< SlotAlloc >( allocator(), new_num_buckets * Bucket::NUM_SLOTS );
                 m_buckets = rebind_allocate< BucketAlloc >( allocator(), new_num_buckets + 1 );
             }
         } else {
-            m_slots = rebind_allocate< SlotAlloc >( allocator(), new_num_buckets * Bucket::NUM_SLOTS );
             m_buckets = rebind_allocate< BucketAlloc >( allocator(), new_num_buckets + 1 );
         }
         copy_buckets_from( other, new_num_buckets );
@@ -274,9 +273,8 @@ class SetImpl : private Allocator {
         };
 
         do {
-            const Bucket& bucket = m_buckets[ bucket_index ];
-            const Slot< T >* bucket_start = m_slots + Bucket::NUM_SLOTS * bucket_index;
-            __m256i slots = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes );
+            const bucket_type& bucket = m_buckets[ bucket_index ];
+            __m256i slots = _mm256_load_si256( (const __m256i*)bucket.occupancy_and_hashes() );
 
             if constexpr ( !( Evict{} || Rehash{} ) ) {
                 __m256i broadcasted_low_bits = _mm256_set1_epi8( low_bits );
@@ -285,7 +283,7 @@ class SetImpl : private Allocator {
 
                 while ( match_mask ) {
                     int i = CTZ( match_mask );
-                    if ( LIKELY( Compare{}( key, ( bucket_start + i )->get() ) ) ) {
+                    if ( LIKELY( Compare{}( key, bucket.slots[ i ].get() ) ) ) {
                         return found_existing_slot( bucket_index, i );
                     }
                     match_mask ^= 1 << i;
@@ -310,7 +308,7 @@ class SetImpl : private Allocator {
                 } else {
                     // First check if probe length is greater than all current probe lengths.
                     __m256i broadcasted_probe_length = _mm256_set1_epi8( probe_length );
-                    __m256i probe_lengths = _mm256_load_si256( (const __m256i*)bucket.probe_lengths );
+                    __m256i probe_lengths = _mm256_load_si256( (const __m256i*)bucket.probe_lengths() );
                     __m256i comparison = _mm256_cmpgt_epi8( broadcasted_probe_length, probe_lengths );
                     int gt_mask = _mm256_movemask_epi8( comparison );
                     // If gt_mask == ~0 then our probe length is longer than all probe lengths in
@@ -332,8 +330,8 @@ class SetImpl : private Allocator {
                             min_probe_length = 0;
                         } else {
                             for ( int i = 0; i < 32; ++i ) {
-                                if ( bucket.probe_lengths[ i ] < min_probe_length ) {
-                                    min_probe_length = bucket.probe_lengths[ i ];
+                                if ( bucket.probe_lengths()[ i ] < min_probe_length ) {
+                                    min_probe_length = bucket.probe_lengths()[ i ];
                                     min_slot = i;
                                 }
                             }
@@ -349,16 +347,15 @@ class SetImpl : private Allocator {
     }
 
     void erase( size_type bucket_index, int index_in_bucket ) {
-        Bucket* bucket = m_buckets + bucket_index;
+        bucket_type* bucket = m_buckets + bucket_index;
         do {
-            Slot< T >* bucket_start = m_slots + 32 * bucket_index;
-            __m256i slots = _mm256_load_si256( (const __m256i*)bucket->occupancy_and_hashes );
+            __m256i slots = _mm256_load_si256( (const __m256i*)bucket->occupancy_and_hashes() );
             int occupied_mask = _mm256_movemask_epi8( slots );
             if ( LIKELY( occupied_mask != ~0 ) ) {
             finished:
-                ( bucket_start + index_in_bucket )->destroy();
-                bucket->occupancy_and_hashes[ index_in_bucket ] = 0;
-                bucket->probe_lengths[ index_in_bucket ] = 0;
+                bucket->slots[ index_in_bucket ].destroy();
+                bucket->occupancy_and_hashes()[ index_in_bucket ] = 0;
+                bucket->probe_lengths()[ index_in_bucket ] = 0;
                 m_num_occupied--;
                 return;
             }
@@ -366,11 +363,11 @@ class SetImpl : private Allocator {
             // At this point, the current bucket is full so we need to shift a value backward from the next
             // bucket. We shift backward the value with longest probe length.
             bucket_index = ( bucket_index + 1 ) & ( SENTINEL_INDEX >> m_bitshift );
-            Bucket* next_bucket = m_buckets + bucket_index;
-            Slot< T >* next_bucket_start = m_slots + 32 * bucket_index;
+
+            bucket_type* next_bucket = m_buckets + bucket_index;
 
             // Find slots in next bucket with non-zero probe length.
-            __m256i probe_lengths = _mm256_load_si256( (const __m256i*)next_bucket->probe_lengths );
+            __m256i probe_lengths = _mm256_load_si256( (const __m256i*)next_bucket->probe_lengths() );
             __m256i zero_vec = _mm256_setzero_si256();
             __m256i nonzeros = _mm256_cmpgt_epi8( probe_lengths, zero_vec );
             int nzmask = _mm256_movemask_epi8( nonzeros );
@@ -378,7 +375,7 @@ class SetImpl : private Allocator {
             int max_slot = 32;
             while ( nzmask ) {
                 int i = CTZ( nzmask );
-                uint8_t pl = next_bucket->probe_lengths[ i ];
+                uint8_t pl = next_bucket->probe_lengths()[ i ];
                 if ( pl > max_probe_len ) {
                     max_probe_len = pl;
                     max_slot = i;
@@ -389,9 +386,9 @@ class SetImpl : private Allocator {
                 // All probe lengths in next bucket were zero, so we're done.
                 goto finished;
             }
-            ( bucket_start + index_in_bucket )->get() = std::move( ( next_bucket_start + max_slot )->get() );
-            bucket->occupancy_and_hashes[ index_in_bucket ] = next_bucket->occupancy_and_hashes[ max_slot ];
-            bucket->probe_lengths[ index_in_bucket ] = max_probe_len - 1;
+            bucket->slots[ index_in_bucket ].get() = std::move( next_bucket->slots[ max_slot ].get() );
+            bucket->occupancy_and_hashes()[ index_in_bucket ] = next_bucket->occupancy_and_hashes()[ max_slot ];
+            bucket->probe_lengths()[ index_in_bucket ] = max_probe_len - 1;
             bucket = next_bucket;
             index_in_bucket = max_slot;
         } while ( true );

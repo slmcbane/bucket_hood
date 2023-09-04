@@ -1,6 +1,7 @@
 #ifndef BUCKET_HOOD_DETAIL_HPP
 #define BUCKET_HOOD_DETAIL_HPP
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -33,7 +34,7 @@ namespace bucket_hood {
 
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
 
-inline constexpr float default_load_factor = 0.95;
+inline constexpr float default_load_factor = 0.9;
 
 static_assert( default_load_factor < 1, "Load factor == 1 does not work" );
 
@@ -171,16 +172,14 @@ template < class Bucket, class T >
 struct SlotIterator {
     SlotIterator() noexcept = default;
 
-    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot ) noexcept
-        : m_bucket{ bucket }, m_slot{ slot } {
+    explicit SlotIterator( const Bucket* bucket ) noexcept : m_bucket{ bucket } {
         if ( bucket ) {
             m_mask = Bucket::occupied_mask( *m_bucket );
         }
         scan_to_slot();
     }
 
-    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot, int slot_index ) noexcept
-        : m_bucket{ bucket }, m_slot{ slot } {
+    explicit SlotIterator( const Bucket* bucket, int slot_index ) noexcept : m_bucket{ bucket } {
         assert( m_bucket );
         m_mask = Bucket::occupied_mask( *m_bucket );
         assert( m_mask & ( 1 << slot_index ) );
@@ -188,8 +187,7 @@ struct SlotIterator {
         m_mask &= ( ~0u << m_slot_index );
     }
 
-    explicit SlotIterator( const Bucket* bucket, Slot< T >* slot, int slot_index, EmptySlotTag ) noexcept
-        : m_bucket{ bucket }, m_slot{ slot } {
+    explicit SlotIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
         assert( m_bucket );
         m_mask = Bucket::occupied_mask( *m_bucket );
         m_mask &= ( ~0u << slot_index );
@@ -198,7 +196,7 @@ struct SlotIterator {
 
     void increment() noexcept { scan_to_slot(); }
 
-    const Slot< T >& dereference() const noexcept { return *( m_slot + m_slot_index ); }
+    const Slot< T >& dereference() const noexcept { return m_bucket->slots[ m_slot_index ]; }
 
     friend bool operator==( const SlotIterator& a, const SlotIterator& b ) {
         return a.m_bucket == b.m_bucket && a.m_slot_index == b.m_slot_index;
@@ -209,7 +207,6 @@ struct SlotIterator {
 
   private:
     const Bucket* m_bucket{ nullptr };
-    Slot< T >* m_slot{ nullptr };
     int m_mask{ 0 };
     int m_slot_index{ 0 };
 
@@ -217,7 +214,6 @@ struct SlotIterator {
         while ( !m_mask ) {
             ++m_bucket;
             m_mask = Bucket::occupied_mask( *m_bucket );
-            m_slot += Bucket::NUM_SLOTS;
         }
         m_slot_index = CTZ( m_mask );
         m_mask ^= ( 1 << m_slot_index );
@@ -234,11 +230,11 @@ struct SetIterator {
 
     SetIterator() noexcept = default;
 
-    explicit SetIterator( const Bucket* bucket, Slot< T >* slot, int slot_index ) noexcept
-        : m_slot_iterator( bucket, slot, slot_index ) {}
+    explicit SetIterator( const Bucket* bucket, int slot_index ) noexcept
+        : m_slot_iterator( bucket, slot_index ) {}
 
-    explicit SetIterator( const Bucket* bucket, Slot< T >* slot, int slot_index, EmptySlotTag ) noexcept
-        : m_slot_iterator( bucket, slot, slot_index, EmptySlotTag{} ) {}
+    explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept
+        : m_slot_iterator( bucket, slot_index, EmptySlotTag{} ) {}
 
     SetIterator& operator++() noexcept {
         m_slot_iterator.increment();
@@ -296,17 +292,16 @@ struct CoreAlgorithms {
         assert( low_bits & 0x80 );
 
         int slot_index = where.slot_index();
-        auto& slot = backend.m_slots[ where.bucket_index * Backend::bucket_type::NUM_SLOTS + slot_index ];
+        auto& bucket = backend.m_buckets[ where.bucket_index ];
         if ( where.evict() ) {
             evict( backend, where );
-            backend.assigner( slot.get() ).assign( std::forward< Args >( args )... );
+            backend.assigner( bucket.slots[ slot_index ].get() ).assign( std::forward< Args >( args )... );
         } else {
-            slot.emplace( std::forward< Args >( args )... );
+            bucket.slots[ slot_index ].emplace( std::forward< Args >( args )... );
         }
 
-        auto& bucket = backend.m_buckets[ where.bucket_index ];
-        bucket.occupancy_and_hashes[ slot_index ] = low_bits;
-        bucket.probe_lengths[ slot_index ] = where.probe_length();
+        bucket.occupancy_and_hashes()[ slot_index ] = low_bits;
+        bucket.probe_lengths()[ slot_index ] = where.probe_length();
         backend.m_num_occupied++;
     }
 
@@ -317,13 +312,13 @@ struct CoreAlgorithms {
         assert( where.evict() );
 
         int slot_index = where.slot_index();
-        auto bucket = backend.m_buckets + where.bucket_index;
-        auto slot = backend.m_slots + Backend::bucket_type::NUM_SLOTS * where.bucket_index + slot_index;
-        auto original_slot = slot;
+        auto* bucket = backend.m_buckets + where.bucket_index;
+        auto* slot = bucket->slots + slot_index;
+        auto* original_slot = slot;
 
         size_type next_bucket_index = ( where.bucket_index + 1 ) & ( SENTINEL_INDEX >> backend.m_bitshift );
-        uint8_t probe_length = bucket->probe_lengths[ slot_index ];
-        uint8_t low_bits = bucket->occupancy_and_hashes[ slot_index ];
+        uint8_t probe_length = bucket->probe_lengths()[ slot_index ];
+        uint8_t low_bits = bucket->occupancy_and_hashes()[ slot_index ];
         where = backend.template find_or_insert< IsEviction, IsRehash, FindOrInsert >(
             slot->get(), next_bucket_index, low_bits, probe_length + 1 );
 
@@ -331,13 +326,13 @@ struct CoreAlgorithms {
         slot_index = where.slot_index();
         bucket = backend.m_buckets + where.bucket_index;
         probe_length = where.probe_length();
-        slot = backend.m_slots + Backend::bucket_type::NUM_SLOTS * where.bucket_index + slot_index;
+        slot = bucket->slots + slot_index;
 
         while ( where.evict() ) {
             using std::swap;
             swap( original_slot->get(), slot->get() );
-            swap( probe_length, bucket->probe_lengths[ slot_index ] );
-            swap( low_bits, bucket->occupancy_and_hashes[ slot_index ] );
+            swap( probe_length, bucket->probe_lengths()[ slot_index ] );
+            swap( low_bits, bucket->occupancy_and_hashes()[ slot_index ] );
             next_bucket_index = ( where.bucket_index + 1 ) & ( SENTINEL_INDEX >> backend.m_bitshift );
             where = backend.template find_or_insert< IsEviction, IsRehash, FindOrInsert >(
                 original_slot->get(), next_bucket_index, low_bits, probe_length + 1 );
@@ -345,80 +340,70 @@ struct CoreAlgorithms {
             slot_index = where.slot_index();
             bucket = backend.m_buckets + where.bucket_index;
             probe_length = where.probe_length();
-            slot = backend.m_slots + Backend::bucket_type::NUM_SLOTS * where.bucket_index + slot_index;
+            slot = bucket->slots + slot_index;
         }
 
-        bucket->occupancy_and_hashes[ slot_index ] = low_bits;
-        bucket->probe_lengths[ slot_index ] = probe_length;
+        bucket->occupancy_and_hashes()[ slot_index ] = low_bits;
+        bucket->probe_lengths()[ slot_index ] = probe_length;
         slot->emplace( std::move( original_slot->get() ) );
     }
 
     template < class Backend >
     static void resize( Backend& backend, size_type new_size, float load_factor ) {
         size_type num_buckets = backend.num_buckets();
-        auto old_slots = backend.m_slots;
-        auto old_buckets = backend.m_buckets;
-        backend.m_slots = rebind_allocate< typename Backend::SlotAlloc >(
-            backend.allocator(), new_size * Backend::bucket_type::NUM_SLOTS );
+        auto* old_buckets = backend.m_buckets;
         backend.m_buckets =
             rebind_allocate< typename Backend::BucketAlloc >( backend.allocator(), new_size + 1 );
-        std::memset( backend.m_buckets, 0, new_size * sizeof( typename Backend::bucket_type ) );
+        std::memset( backend.m_buckets, 0, sizeof( typename Backend::bucket_type ) * new_size );
         backend.m_buckets[ new_size ].setup_end_sentinel();
         backend.m_bitshift -= 1;
         backend.m_num_occupied = 0;
         backend.m_rehash = float( new_size * Backend::bucket_type::NUM_SLOTS ) * load_factor;
 
         backend.template visit_occupied_slots(
-            old_buckets, old_slots, num_buckets, [ &backend ]( auto&, auto slot, size_t, int i ) {
-                auto& key = slot->get();
-                size_type hash = typename Backend::hash_type{}( slot->get() );
+            old_buckets, num_buckets, [ &backend ]( auto& bucket, size_t, int slot_index ) {
+                auto& key = bucket.slots[ slot_index ].get();
+                size_type hash = typename Backend::hash_type{}( key );
                 size_type bucket_index = hash >> backend.m_bitshift;
                 uint8_t low_bits = ( hash & 0x7f ) | 0x80;
 
-                if ( backend.m_buckets[ bucket_index ].occupancy_and_hashes[ i ] == 0 ) {
-                    backend.m_buckets[ bucket_index ].occupancy_and_hashes[ i ] = low_bits;
-                    backend.m_slots[ bucket_index * Backend::bucket_type::NUM_SLOTS + i ].emplace(
-                        std::move( key ) );
+                if ( backend.m_buckets[ bucket_index ].occupancy_and_hashes()[ slot_index ] == 0 ) {
+                    backend.m_buckets[ bucket_index ].occupancy_and_hashes()[ slot_index ] = low_bits;
+                    backend.m_buckets[ bucket_index ].slots[ slot_index ].emplace( std::move( key ) );
                     backend.m_num_occupied++;
                 } else {
                     BucketAndSlot where =
                         backend.template find_or_insert< NotEviction, IsRehash, FindOrInsert >(
-                            slot->get(), bucket_index, low_bits );
-
+                            key, bucket_index, low_bits );
                     assert( !where.not_found() );
                     assert( !where.key_exists() );
-
                     do_insert( backend, low_bits, where, std::move( key ) );
                 }
             } );
 
-        rebind_deallocate< typename Backend::SlotAlloc >( backend.allocator(), old_slots,
-                                                          num_buckets * Backend::bucket_type::NUM_SLOTS );
         rebind_deallocate< typename Backend::BucketAlloc >( backend.allocator(), old_buckets, num_buckets + 1 );
     }
 
     template < class Backend >
-    using value_type = std::decay_t< decltype( std::declval< Backend >().m_slots->get() ) >;
+    using value_type = typename Backend::value_type;
 
     template < class Backend >
     static auto make_const_iterator( const Backend& backend, const BucketAndSlot& where ) noexcept {
         assert( !where.not_found() );
         return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
-            backend.m_buckets + where.bucket_index,
-            backend.m_slots + Backend::bucket_type::NUM_SLOTS * where.bucket_index, where.slot_index() );
+            backend.m_buckets + where.bucket_index, where.slot_index() );
     }
 
     template < class Backend >
     static auto const_end( const Backend& backend ) {
         return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
-            backend.m_buckets + backend.num_buckets(), nullptr, 0 );
+            backend.m_buckets + backend.num_buckets(), 0 );
     }
 
     template < class Backend >
     static auto const_iterator_empty_slot( const Backend& backend, size_type bucket_index, int slot_index ) {
         return SetIterator< typename Backend::bucket_type, value_type< Backend >, true >(
-            backend.m_buckets + bucket_index, backend.m_slots + Backend::bucket_type::NUM_SLOTS * bucket_index,
-            slot_index, EmptySlotTag{} );
+            backend.m_buckets + bucket_index, slot_index, EmptySlotTag{} );
     }
 };
 

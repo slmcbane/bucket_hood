@@ -88,15 +88,15 @@ struct hash_finder< Hash, T, T > : std::true_type {
  * Helper traits to deal with allocators and whether they propagate or not.
  */
 template < class Alloc >
-constexpr inline bool is_always_equal = std::allocator_traits< Alloc >::is_always_equal;
+constexpr inline bool is_always_equal = std::allocator_traits< Alloc >::is_always_equal::value;
 
 template < class Alloc >
 constexpr inline bool move_assign_propagates =
-    std::allocator_traits< Alloc >::propagate_on_container_move_assignment;
+    std::allocator_traits< Alloc >::propagate_on_container_move_assignment::value;
 
 template < class Alloc >
 constexpr inline bool copy_assign_propagates =
-    std::allocator_traits< Alloc >::propagate_on_container_copy_assignment;
+    std::allocator_traits< Alloc >::propagate_on_container_copy_assignment::value;
 
 } // namespace bucket_hood
 
