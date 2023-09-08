@@ -59,18 +59,20 @@ int main( int argc, char* argv[] ) {
     nanobench::Bench b;
     b.title( "Test inserting only into a hash set" ).relative( true ).performanceCounters( true ).warmup( 1 );
 
-    bench< unordered_dense::set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >( b, "ankerl",
-                                                                                                    count );
+    bench<
+        unordered_dense::set< uint64_t, std::hash< uint64_t >, std::equal_to<>, DebugAllocator< uint64_t > > >(
+        b, "ankerl", count );
     std::cout << "unordered_dense allocated " << AllocatorCounters::allocated << " B\n";
     std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
-    bench< bucket_hood::unordered_set< int, std::hash< int >, std::equal_to<>, DebugAllocator< int > > >(
-        b, "bucket_hood", count );
+    bench< bucket_hood::unordered_set< uint64_t, std::hash< uint64_t >, std::equal_to<>,
+                                       DebugAllocator< uint64_t > > >( b, "bucket_hood", count );
     assert( AllocatorCounters::allocated == AllocatorCounters::deallocated );
     std::cout << "bucket_hood allocated " << AllocatorCounters::allocated << " B\n";
     std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
     AllocatorCounters::reset();
-    bench< robin_hood::unordered_flat_set< int, std::hash< int >, std::equal_to<> > >( b, "robin_hood", count );
+    bench< robin_hood::unordered_flat_set< uint64_t, std::hash< uint64_t >, std::equal_to<> > >(
+        b, "robin_hood", count );
     std::cout << "robin_hood allocated " << AllocatorCounters::allocated << " B\n";
 }
 

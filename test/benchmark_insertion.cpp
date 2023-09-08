@@ -40,8 +40,8 @@ int main( int argc, char* argv[] ) {
         bench< unordered_dense::set< int > >( b, "ankerl", count, min, max );
         bench< robin_hood::unordered_flat_set< int > >( b, "robin_hood", count, min, max );
     } else {
-        bench< bucket_hood::unordered_set< int > >( b, "bucket_hood", count );
-        bench< unordered_dense::set< int > >( b, "ankerl", count );
-        bench< robin_hood::unordered_flat_set< int > >( b, "robin_hood", count );
+        bench< bucket_hood::unordered_set< uint64_t > >( b, "bucket_hood", count );
+        bench< unordered_dense::set< uint64_t > >( b, "ankerl", count );
+        bench< robin_hood::unordered_flat_set< uint64_t > >( b, "robin_hood", count );
     }
 }
