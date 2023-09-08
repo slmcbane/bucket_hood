@@ -12,10 +12,13 @@ insertion: benchmark_insertion.o nanobench.o
 random_insert_erase: benchmark_random_insert_erase.o nanobench.o
 	$(CXX) $(CXXFLAGS) benchmark_random_insert_erase.o nanobench.o -o random_insert_erase
 
+iteration: benchmark_iteration.o nanobench.o
+	$(CXX) $(CXXFLAGS) benchmark_iteration.o nanobench.o -o iteration
+
 test: runner.o
 	$(CXX) $(CXXFLAGS) runner.cpp -o test
 
-benchmarks: insert_access insert_erase insertion random_insert_erase
+benchmarks: insert_access insert_erase insertion random_insert_erase iteration
 
 clean:
 	rm -f *.o insert_access insert_erase insertion test
