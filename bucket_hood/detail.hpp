@@ -34,7 +34,7 @@ namespace bucket_hood {
 
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
 
-inline constexpr float default_load_factor = 0.9;
+inline constexpr float default_load_factor = 0.95;
 
 static_assert( default_load_factor < 1, "Load factor == 1 does not work" );
 
@@ -111,8 +111,25 @@ ALWAYS_INLINE BucketAndSlot found_eviction( size_type bi, int i, uint8_t probe_l
 
 // Fibonacci hashing: multiply by 2^64 / phi, phi is the golden ratio. This distributes
 // values ~equally in the range of 64 bit numbers.
-inline uint64_t hash_mix( uint64_t hash ) { return hash * 11400714819323198485llu; }
-inline uint32_t hash_mix( uint32_t hash ) { return hash * 2654435769u; }
+inline uint64_t hash_mix( uint64_t hash ) {
+    hash *= 0xbf58476d1ce4e5b9ull;
+    hash ^= hash >> 32;
+    hash *= 0x94d049bb133111ebull;
+    hash ^= hash >> 32;
+    hash *= 0x94d049bb133111ebull;
+    return hash;
+}
+
+inline uint32_t hash_mix( uint32_t hash ) {
+    hash ^= hash >> 17;
+    hash *= 0xed5ad4bbU;
+    hash ^= hash >> 11;
+    hash *= 0xac4c1b51U;
+    hash ^= hash >> 15;
+    hash *= 0x31848babU;
+    hash ^= hash >> 14;
+    return hash;
+}
 
 template < class Hash >
 struct known_good : std::false_type {};
