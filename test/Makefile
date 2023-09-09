@@ -1,3 +1,5 @@
+all: benchmarks test
+
 CXXFLAGS += -Wall -Wextra -pedantic -march=native -std=c++17
 
 insert_access: benchmark_insert_access.o nanobench.o
@@ -15,10 +17,13 @@ random_insert_erase: benchmark_random_insert_erase.o nanobench.o
 iteration: benchmark_iteration.o nanobench.o
 	$(CXX) $(CXXFLAGS) benchmark_iteration.o nanobench.o -o iteration
 
+lookup_insert: benchmark_lookup_insert.o nanobench.o
+	$(CXX) $(CXXFLAGS) benchmark_lookup_insert.o nanobench.o -o lookup_insert
+
 test: runner.o
 	$(CXX) $(CXXFLAGS) runner.cpp -o test
 
-benchmarks: insert_access insert_erase insertion random_insert_erase iteration
+benchmarks: insert_access insert_erase insertion random_insert_erase iteration lookup_insert
 
 clean:
 	rm -f *.o insert_access insert_erase insertion test

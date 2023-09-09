@@ -8,3 +8,4 @@ insert_erase
 insert_access
 random_insert_erase
 iteration
+lookup_insert
