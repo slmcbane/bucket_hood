@@ -111,24 +111,29 @@ ALWAYS_INLINE BucketAndSlot found_eviction( size_type bi, int i, uint8_t probe_l
 
 // Fibonacci hashing: multiply by 2^64 / phi, phi is the golden ratio. This distributes
 // values ~equally in the range of 64 bit numbers.
-inline uint64_t hash_mix( uint64_t hash ) {
-    hash *= 0xbf58476d1ce4e5b9ull;
-    hash ^= hash >> 32;
-    hash *= 0x94d049bb133111ebull;
-    hash ^= hash >> 32;
-    hash *= 0x94d049bb133111ebull;
-    return hash;
+ALWAYS_INLINE void mum( uint64_t* a, uint64_t* b ) {
+    __uint128_t r = *a;
+    r *= *b;
+    *a = static_cast< uint64_t >( r );
+    *b = static_cast< uint64_t >( r >> 64 );
 }
 
-inline uint32_t hash_mix( uint32_t hash ) {
-    hash ^= hash >> 17;
+ALWAYS_INLINE uint64_t hash_mix( uint64_t hash ) {
+    uint64_t a = 0x9e3779b97fa7c15ull;
+    mum( &hash, &a );
+    return hash ^ a;
+}
+
+ALWAYS_INLINE uint32_t hash_mix( uint32_t hash ) {
+    return hash_mix( (uint64_t)hash );
+    /*hash ^= hash >> 17;
     hash *= 0xed5ad4bbU;
     hash ^= hash >> 11;
     hash *= 0xac4c1b51U;
     hash ^= hash >> 15;
     hash *= 0x31848babU;
     hash ^= hash >> 14;
-    return hash;
+    return hash; */
 }
 
 template < class Hash >
@@ -136,7 +141,7 @@ struct known_good : std::false_type {};
 
 template < class Hash, class T >
 struct mixed_hash {
-    size_type operator()( const T& x ) const {
+    ALWAYS_INLINE size_type operator()( const T& x ) const {
         auto base_hash = Hash{}( x );
         if constexpr ( known_good< Hash >{} ) {
             return base_hash;
