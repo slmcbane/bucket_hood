@@ -7,6 +7,8 @@
 #include <iostream>
 #include <random>
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 using namespace ankerl;
 
 template < typename Set >
@@ -74,5 +76,10 @@ int main( int argc, char* argv[] ) {
     bench< robin_hood::unordered_flat_set< uint64_t, std::hash< uint64_t >, std::equal_to<> > >(
         b, "robin_hood", count );
     std::cout << "robin_hood allocated " << AllocatorCounters::allocated << " B\n";
+    AllocatorCounters::reset();
+    bench< boost::unordered_flat_set< uint64_t, std::hash< uint64_t >, std::equal_to<>,
+                                      DebugAllocator< uint64_t > > >( b, "boost", count );
+    std::cout << "bucket_hood allocated " << AllocatorCounters::allocated << " B\n";
+    std::cout << "peak memory usage " << AllocatorCounters::peak << " B\n";
 }
 

@@ -26,6 +26,6 @@ test: runner.o
 benchmarks: insert_access insert_erase insertion random_insert_erase iteration lookup_insert
 
 clean:
-	rm -f *.o insert_access insert_erase insertion test
+	rm -f *.o insert_access insert_erase insertion test iteration lookup_insert random_insert_erase
 
 .PHONY: clean benchmarks

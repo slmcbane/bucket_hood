@@ -4,6 +4,8 @@
 #include "test_utils.hpp"
 #include "unordered_dense.h"
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include <iostream>
 #include <random>
 
@@ -44,10 +46,11 @@ int main( int argc, char* argv[] ) {
     int checksum = bench< bucket_hood::unordered_set< int > >( benchmarker, "bucket_hood", rng, max );
     std::cout << "checksum = " << checksum << '\n';
     rng.set_state( a, b, c, d );
-    checksum = bench< unordered_dense::set< int > >( benchmarker, "bucket_hood", rng, max );
+    checksum = bench< unordered_dense::set< int > >( benchmarker, "ankerl", rng, max );
     std::cout << "checksum = " << checksum << '\n';
     rng.set_state( a, b, c, d );
-    checksum = bench< robin_hood::unordered_flat_set< int > >( benchmarker, "bucket_hood", rng, max );
+    checksum = bench< robin_hood::unordered_flat_set< int > >( benchmarker, "robin_hood", rng, max );
     std::cout << "checksum = " << checksum << '\n';
+    checksum = bench< boost::unordered::unordered_flat_set< int > >( benchmarker, "boost", rng, max );
 }
 

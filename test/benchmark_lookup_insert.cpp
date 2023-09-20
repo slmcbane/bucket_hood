@@ -7,6 +7,8 @@
 
 using namespace ankerl;
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 template < typename Set >
 void bench( nanobench::Bench& bench, const char* name, int insert_outer, int lookups_per_insert,
             int success_out_of_4, uint64_t mask ) {
@@ -49,13 +51,11 @@ void bench( nanobench::Bench& bench, const char* name, int insert_outer, int loo
             // Do lookups. Track successful lookup percentage.
             const size_t num_in_map = ( i + 1 ) * 4;
             const size_t iters = lookups_per_insert / num_in_map;
-            auto end = set.end();
             for ( size_t j = 0; j < iters; ++j ) {
                 rng_copy.set_state( a, b, c, d );
                 for ( size_t k = 0; k < num_in_map; ++k ) {
                     uint64_t key = rng_copy() & mask;
-                    auto it = set.find( key );
-                    lookups_succeeded += ( it != end );
+                    lookups_succeeded += set.contains( key );
                 }
                 lookups += num_in_map;
             }
@@ -69,9 +69,9 @@ int main() {
     nanobench::Bench b;
     b.title( "Test lookups in a hash set" ).relative( true ).performanceCounters( true ).warmup( 1 );
 
-    int lookups_per_insert = 2'000'000;
-    int insert_outer = 500;
-    int success_out_of_4 = 4;
+    int lookups_per_insert = 5'000'000;
+    int insert_outer = 50;
+    int success_out_of_4 = 3;
     uint64_t mask = 0xffffffffffffffffUL;
 
     bench< bucket_hood::unordered_set< uint64_t > >( b, "bucket_hood", insert_outer, lookups_per_insert,
@@ -80,5 +80,7 @@ int main() {
                                                mask );
     bench< robin_hood::unordered_flat_set< uint64_t > >( b, "robin_hood", insert_outer, lookups_per_insert,
                                                          success_out_of_4, mask );
+    bench< boost::unordered_flat_set< uint64_t > >( b, "boost", insert_outer, lookups_per_insert,
+                                                    success_out_of_4, mask );
 }
 
