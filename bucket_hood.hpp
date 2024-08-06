@@ -1,9 +1,9 @@
 #ifndef BUCKET_HOOD_HPP_GUARD
 #define BUCKET_HOOD_HPP_GUARD
 
-#include <cassert>
 #include <cstdint>
 
+#include <concepts>
 #include <iterator>
 #include <type_traits>
 #include <utility>
@@ -122,8 +122,8 @@ struct default_assign {
     }
 
     template < class... Args >
-    static void do_assignment( T& a, Args&&... args ) noexcept(
-        std::is_nothrow_constructible_v< T, Args... >&& std::is_nothrow_move_assignable_v< T > ) {
+    static void do_assignment( T& a, Args&&... args ) noexcept( std::is_nothrow_constructible_v< T, Args... > &&
+                                                                std::is_nothrow_move_assignable_v< T > ) {
         a = T( std::forward< Args >( args )... );
     }
 };
@@ -198,7 +198,125 @@ struct SetIterator {
 
 } // namespace detail
 
+template < class Bucket >
+concept valid_bucket_type =
+    alignof( typename Bucket::bucket_type ) >= 64 && requires( Bucket& b, uint8_t low_bits ) {
+        { b.matching_slots( low_bits ) } -> std::same_as< int >;
+        { b.empty_slots() } -> std::same_as< int >;
+        { b.get( std::declval< int >() ) };
+    };
+
+template < class Traits >
+concept valid_traits_type = std::is_default_constructible_v< Traits > &&
+                            std::is_copy_constructible_v< Traits > && std::is_move_constructible_v< Traits > &&
+                            valid_bucket_type< typename Traits::bucket_type > && requires( Traits& t ) {
+                                {
+                                    t.allocate( std::declval< size_type >() )
+                                } -> std::same_as< typename Traits::bucket_type* >;
+                                {
+                                    t.deallocate( std::declval< typename Traits::bucket_type* >() )
+                                } -> std::same_as< void >;
+                                {
+                                    t.comparison()( std::declval< const typename Traits::value_type& >(),
+                                                    std::declval< const typename Traits::value_type& >() )
+                                } -> std::same_as< bool >;
+                            };
+
+template < class Traits, class K >
+concept has_transparent_comparison = Traits::comparison_type::template is_transparent< K >;
+
+template < class Traits >
+requires valid_traits_type< Traits >
+class HashSetBase {
+  public:
+    typedef Traits::bucket_type bucket_type;
+    typedef Traits::value_type value_type;
+
+    struct Location {
+        bucket_type* bucket;
+        int slot;
+        int probe_length;
+    };
+
+    BH_ALWAYS_INLINE uint64_t bucket_index( uint64_t hash_val ) const {
+        static constexpr uint64_t all_ones = ~uint64_t( 0 );
+        return hash_val & ~( all_ones << bitshift() );
+    }
+
+    /*
+     * Find an existing key or the location to insert one. Returned is pointer to the bucket,
+     * slot index, and the probe length. If we need to evict an entry the returned slot index
+     * is < 0 to indicate the fact. If probe length overflows an 8-bit integer the returned
+     * probe length is 256 and returned bucket is nullptr (this requires a rehash).
+     */
+    template < has_transparent_comparison< Traits > K >
+    Location find( K&& key, uint64_t hash_val ) const {
+        auto bucket_index = hash_val & ( uint64_t( 1 ) << bitshift() );
+        bucket_type* bucket = buckets() + bucket_index;
+        int probe_length = 0;
+        uint8_t low_bits = ( hash_val & 0xff ) | 0x80;
+
+        do {
+            int match_mask = bucket->matching_slots( low_bits );
+            while ( match_mask ) {
+                int slot = ctz( match_mask );
+                if ( likely( m_traits.comparison()( bucket->get( slot ), key ) ) ) {
+                    return { bucket, slot, probe_length };
+                }
+                match_mask ^= 1 << slot;
+            }
+
+            int empty_mask = bucket->empty_slots();
+            if ( empty_mask ) {
+                int slot = ctz( empty_mask );
+                return { bucket, slot, probe_length };
+            }
+
+            if ( unlikely( bucket->all_probe_lengths_shorter_than( probe_length ) ) ) {
+                return { bucket, -1, probe_length };
+            }
+
+            probe_length++;
+            bucket_index++;
+        } while ( probe_length < 256 );
+
+        return { nullptr, 0, 256 };
+    }
+
+  private:
+    struct PackedPointerAndShift {
+        static constexpr uintptr_t shift_mask = 0x1f;
+        static constexpr uintptr_t ptr_mask = ~shift_mask;
+        uintptr_t ptr_and_shift = 0;
+
+        BH_ALWAYS_INLINE bucket_type* get_pointer() const {
+            return reinterpret_cast< bucket_type* >( ptr_and_shift & ptr_mask );
+        }
+        BH_ALWAYS_INLINE uintptr_t get_shift() const { return ptr_and_shift & shift_mask; }
+
+        BH_ALWAYS_INLINE void set_shift( uintptr_t shift ) {
+            ptr_and_shift = ( ptr_and_shift & ptr_mask ) | shift;
+        }
+        BH_ALWAYS_INLINE void set_ptr( bucket_type* ptr ) {
+            ptr_and_shift = ( ptr_and_shift & shift_mask ) | reinterpret_cast< uintptr_t >( ptr );
+        }
+
+        PackedPointerAndShift( bucket_type* ptr, int shift ) {
+            set_shift( shift );
+            set_ptr( ptr );
+        }
+    };
+
+    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
+    PackedPointerAndShift m_buckets_and_shift{ &end_sentinel, 0 };
+    size_type m_occupied = 0;
+    size_type m_rehash = 0;
+    [[no_unique_address]] Traits m_traits;
+
+    BH_ALWAYS_INLINE bucket_type* buckets() const { return m_buckets_and_shift.get_pointer(); }
+    BH_ALWAYS_INLINE uintptr_t bitshift() const { return m_buckets_and_shift.get_shift(); }
+};
+
 } // namespace bucket_hood
 
 #endif // BUCKET_HOOD_HPP_GUARD
-
