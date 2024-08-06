@@ -38,21 +38,6 @@ BH_ALWAYS_INLINE int ctz( unsigned x ) noexcept { return __builtin_ctz( x ); }
 [[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
 
 /********************************************************************************
- * Utility types
- *******************************************************************************/
-namespace detail {
-
-template < class T >
-class EmptyBase : private T {
-  protected:
-    EmptyBase() noexcept( std::is_nothrow_default_constructible_v< T > ) = default;
-    EmptyBase( const T& t ) noexcept( std::is_nothrow_copy_constructible_v< T > ) : T( t ) {}
-    EmptyBase( T&& t ) noexcept( std::is_nothrow_move_constructible_v< T > ) : T( std::move( t ) ) {}
-
-    BH_ALWAYS_INLINE const T& get() const noexcept { return static_cast< const T& >( *this ); }
-};
-
-/********************************************************************************
  * Hashing functions and utilities.
  *******************************************************************************/
 
@@ -73,39 +58,19 @@ BH_ALWAYS_INLINE uint64_t hash_mix( uint64_t a ) noexcept {
 template < class Hash >
 struct known_good : std::false_type {};
 
-// Mix the result of invoking Hash, unconditionally.
-template < class Hash >
-class mixed_hash : EmptyBase< Hash > {
+template < class BaseHash >
+class selected_hash {
   public:
-    template < class T >
-    BH_ALWAYS_INLINE uint64_t operator()( const T& x ) const noexcept {
-        return hash_mix( static_cast< uint64_t >( hash()( x ) ) );
+    BH_ALWAYS_INLINE uint64_t operator()( const auto& key ) const {
+        if constexpr ( known_good< BaseHash >::value ) {
+            return m_hash( key );
+        } else {
+            return hash_mix( static_cast< uint64_t >( m_hash( key ) ) );
+        }
     }
 
-  protected:
-    mixed_hash() noexcept( std::is_trivially_default_constructible_v< Hash > ) = default;
-
-    mixed_hash( const Hash& h ) noexcept( std::is_trivially_copy_constructible_v< Hash > )
-        : EmptyBase< Hash >{ h } {}
-
   private:
-    const Hash& hash() const noexcept { return EmptyBase< Hash >::get(); }
-};
-
-template < class Hash, bool = known_good< Hash >::value >
-class selected_hash : public EmptyBase< mixed_hash< Hash > > {
-  public:
-    using Base = EmptyBase< mixed_hash< Hash > >;
-    selected_hash() = default;
-    selected_hash( const Hash& h ) noexcept( std::is_trivially_copy_constructible_v< Hash > ) : Base{ h } {}
-};
-
-template < class Hash >
-class selected_hash< Hash, true > : public EmptyBase< Hash > {
-  public:
-    using Base = EmptyBase< Hash >;
-    selected_hash() = default;
-    selected_hash( const Hash& h ) noexcept( std::is_trivially_copy_constructible_v< Hash > ) : Base{ h } {}
+    [[no_unique_address]] BaseHash m_hash;
 };
 
 /********************************************************************************
@@ -195,8 +160,6 @@ struct SetIterator {
         m_bucket_mask ^= ( 1 << m_slot_index );
     }
 };
-
-} // namespace detail
 
 template < class Bucket >
 concept valid_bucket_type =
