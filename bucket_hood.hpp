@@ -1018,38 +1018,6 @@ class HashSetBase {
         }
     }
 
-  private:
-    struct PackedPointerAndShift {
-        static constexpr uintptr_t shift_mask = 0x1f;
-        static constexpr uintptr_t ptr_mask = ~shift_mask;
-        uintptr_t ptr_and_shift = 0;
-
-        BH_ALWAYS_INLINE bucket_type* get_pointer() const {
-            return reinterpret_cast< bucket_type* >( ptr_and_shift & ptr_mask );
-        }
-        BH_ALWAYS_INLINE uintptr_t get_shift() const { return ptr_and_shift & shift_mask; }
-
-        BH_ALWAYS_INLINE void set_shift( uintptr_t shift ) {
-            ptr_and_shift = ( ptr_and_shift & ptr_mask ) | shift;
-        }
-        BH_ALWAYS_INLINE void set_ptr( bucket_type* ptr ) {
-            ptr_and_shift = ( ptr_and_shift & shift_mask ) | reinterpret_cast< uintptr_t >( ptr );
-        }
-
-        PackedPointerAndShift( bucket_type* ptr, int shift ) {
-            set_shift( shift );
-            set_ptr( ptr );
-        }
-    };
-
-    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
-    PackedPointerAndShift m_buckets_and_shift{ &end_sentinel, 0 };
-    size_type m_occupied = 0;
-    size_type m_rehash = 0;
-    [[no_unique_address]] Traits m_traits;
-
-    BH_ALWAYS_INLINE bucket_type* buckets() const { return m_buckets_and_shift.get_pointer(); }
-
     /*
      * Find an existing key or the location to insert one. Returned is pointer to the bucket,
      * slot index, and the probe length. If we need to evict an entry the returned slot index
@@ -1057,7 +1025,7 @@ class HashSetBase {
      * probe length is 256 and returned bucket is nullptr (this requires a rehash).
      */
     template < has_transparent_comparison< Traits > K >
-    BH_ALWAYS_INLINE Location find_( K&& key, uint64_t hash_val ) const {
+    BH_ALWAYS_INLINE Location locate( K&& key, uint64_t hash_val ) const {
         auto bucket_index = hash_val & ( uint64_t( 1 ) << bitshift() );
         bucket_type* bucket = buckets() + bucket_index;
         int probe_length = 0;
@@ -1090,6 +1058,37 @@ class HashSetBase {
         return { nullptr, 0, 256 };
     }
 
+  private:
+    struct PackedPointerAndShift {
+        static constexpr uintptr_t shift_mask = 0x1f;
+        static constexpr uintptr_t ptr_mask = ~shift_mask;
+        uintptr_t ptr_and_shift = 0;
+
+        BH_ALWAYS_INLINE bucket_type* get_pointer() const {
+            return reinterpret_cast< bucket_type* >( ptr_and_shift & ptr_mask );
+        }
+        BH_ALWAYS_INLINE uintptr_t get_shift() const { return ptr_and_shift & shift_mask; }
+
+        BH_ALWAYS_INLINE void set_shift( uintptr_t shift ) {
+            ptr_and_shift = ( ptr_and_shift & ptr_mask ) | shift;
+        }
+        BH_ALWAYS_INLINE void set_ptr( bucket_type* ptr ) {
+            ptr_and_shift = ( ptr_and_shift & shift_mask ) | reinterpret_cast< uintptr_t >( ptr );
+        }
+
+        PackedPointerAndShift( bucket_type* ptr, int shift ) {
+            set_shift( shift );
+            set_ptr( ptr );
+        }
+    };
+
+    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
+    PackedPointerAndShift m_buckets_and_shift{ &end_sentinel, 0 };
+    size_type m_occupied = 0;
+    size_type m_rehash = 0;
+    [[no_unique_address]] Traits m_traits;
+
+    BH_ALWAYS_INLINE bucket_type* buckets() const { return m_buckets_and_shift.get_pointer(); }
     BH_ALWAYS_INLINE uintptr_t bitshift() const { return m_buckets_and_shift.get_shift(); }
 };
 
