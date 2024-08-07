@@ -974,6 +974,50 @@ class HashSetBase {
         return Policy::from_value( bucket->get( slot ) );
     }
 
+    bool insert( const value_type& val ) {
+        uint64_t hash_val = m_traits.hash( val );
+        while ( true ) {
+            auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+            bool do_rehash = !bucket;
+            do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
+            if ( unlikely( do_rehash ) ) {
+                rehash();
+                continue;
+            } else if ( unlikely( slot < 0 ) ) {
+                evict( bucket, -slot );
+            }
+
+            if ( bucket->occupied( slot ) ) {
+                return false;
+            }
+            bucket->set( slot, val, hash_val, probe_length );
+            m_occupied++;
+            return true;
+        }
+    }
+
+    bool insert( value_type&& val ) {
+        uint64_t hash_val = m_traits.hash( val );
+        while ( true ) {
+            auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+            bool do_rehash = !bucket;
+            do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
+            if ( unlikely( do_rehash ) ) {
+                rehash();
+                continue;
+            } else if ( unlikely( slot < 0 ) ) {
+                evict( bucket, -slot );
+            }
+
+            if ( bucket->occupied( slot ) ) {
+                return false;
+            }
+            bucket->set( slot, std::move( val ), hash_val, probe_length );
+            m_occupied++;
+            return true;
+        }
+    }
+
   private:
     struct PackedPointerAndShift {
         static constexpr uintptr_t shift_mask = 0x1f;
