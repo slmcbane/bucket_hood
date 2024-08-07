@@ -911,6 +911,31 @@ concept valid_traits_type = std::is_default_constructible_v< Traits > &&
 template < class Traits, class K >
 concept has_transparent_comparison = Traits::comparison_type::template is_transparent< K >;
 
+template < class T, class Policy >
+concept is_policy = requires( T& ref, const T& const_ref ) {
+    Policy::from_value( ref );
+    Policy::from_value( const_ref );
+    Policy::from_null();
+    static_cast< decltype( Policy::from_value( ref ) ) >( Policy::from_null() );
+    static_cast< decltype( Policy::from_value( const_ref ) ) >( Policy::from_null() );
+};
+
+struct return_value {
+    template < class T, class U >
+    BH_ALWAYS_INLINE static auto from_value( std::pair< T, U >& pair ) -> Optional< U& > {
+        return SomeRef( pair.second );
+    }
+
+    template < class T, class U >
+    BH_ALWAYS_INLINE static auto from_value( const std::pair< T, U >& pair ) -> Optional< const U& > {
+        return SomeRef( pair.second );
+    }
+
+    BH_ALWAYS_INLINE static auto from_value( auto& x ) { return Optional( SomeRef( x ) ); }
+
+    BH_ALWAYS_INLINE static auto from_null() { return None; }
+};
+
 template < class Traits >
 requires valid_traits_type< Traits >
 class HashSetBase {
@@ -929,19 +954,24 @@ class HashSetBase {
         return hash_val & ~( all_ones << bitshift() );
     }
 
-    template < has_transparent_comparison< Traits > K >
-    Optional< value_type& > find( K&& key ) {
+    template < is_policy< value_type > Policy = return_value, has_transparent_comparison< Traits > K >
+    auto find( K&& key ) {
         uint64_t hash_val = m_traits.hash( key );
         auto [ bucket, slot, probe_length ] = find_( key, hash_val );
-        if ( !bucket || slot < 0 || !bucket->occupied( slot ) ) {
-            return None;
+        if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
+            return Policy::from_null();
         }
-        return SomeRef( bucket->get( slot ) );
+        return Policy::from_value( bucket->get( slot ) );
     }
 
-    template < has_transparent_comparison< Traits > K >
-    Optional< const value_type& > find( K&& key ) const {
-        return const_cast< HashSetBase* >( this )->find( key );
+    template < is_policy< value_type > Policy = return_value, has_transparent_comparison< Traits > K >
+    auto find( K&& key ) const {
+        uint64_t hash_val = m_traits.hash( key );
+        auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+        if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
+            return Policy::from_null();
+        }
+        return Policy::from_value( bucket->get( slot ) );
     }
 
   private:
@@ -1015,6 +1045,7 @@ class HashSetBase {
 
         return { nullptr, 0, 256 };
     }
+
     BH_ALWAYS_INLINE uintptr_t bitshift() const { return m_buckets_and_shift.get_shift(); }
 };
 
