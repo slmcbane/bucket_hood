@@ -25,6 +25,7 @@
 namespace bucket_hood {
 
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
+static_assert( std::disjunction_v< std::is_same< size_type, uint32_t >, std::is_same< size_type, uint64_t > > );
 
 } // namespace bucket_hood
 
@@ -919,17 +920,13 @@ class HashSetBase {
         int probe_length;
     };
 
-    BH_ALWAYS_INLINE auto hash( const key_type& key ) const { return m_traits.hash( key ); }
-
-    BH_ALWAYS_INLINE uint64_t bucket_index( uint64_t hash_val ) const {
-        static constexpr uint64_t all_ones = ~uint64_t( 0 );
-        return hash_val & ~( all_ones << m_bitshift );
+    BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
+        return static_cast< size_type >( m_traits.hash( key ) );
     }
 
     template < transparent_key< Traits > K >
     Optional< value_type& > find( K&& key ) {
-        uint64_t hash_val = m_traits.hash( key );
-        auto [ bucket, slot, probe_length ] = locate( key, hash_val );
+        auto [ bucket, slot, probe_length ] = locate( key, hash( key ) );
         if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
             return None;
         }
@@ -938,8 +935,7 @@ class HashSetBase {
 
     template < transparent_key< Traits > K >
     Optional< const value_type& > find( K&& key ) const {
-        uint64_t hash_val = m_traits.hash( key );
-        auto [ bucket, slot, probe_length ] = locate( key, hash_val );
+        auto [ bucket, slot, probe_length ] = locate( key, hash( key ) );
         if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
             return None;
         }
@@ -948,7 +944,7 @@ class HashSetBase {
 
     bool insert( const element_type& val ) {
         const key_type& key = m_traits.get_key( val );
-        uint64_t hash_val = m_traits.hash( key );
+        auto hash_val = hash( key );
         while ( true ) {
             auto [ bucket, slot, probe_length ] = locate( key, hash_val );
             bool do_rehash = !bucket;
@@ -971,7 +967,7 @@ class HashSetBase {
 
     bool insert( element_type&& val ) {
         key_type& key = m_traits.get_key( val );
-        uint64_t hash_val = m_traits.hash( key );
+        auto hash_val = hash( key );
         while ( true ) {
             auto [ bucket, slot, probe_length ] = locate( key, hash_val );
             bool do_rehash = !bucket;
@@ -999,8 +995,8 @@ class HashSetBase {
      * probe length is 256 and returned bucket is nullptr (this requires a rehash).
      */
     template < transparent_key< Traits > K >
-    BH_ALWAYS_INLINE Location locate( K&& key, uint64_t hash_val ) const {
-        auto bucket_index = hash_val & ( uint64_t( 1 ) << m_bitshift );
+    BH_ALWAYS_INLINE Location locate( K&& key, size_type hash_val ) const {
+        auto bucket_index = hash_val & m_bitmask;
         bucket_type* bucket = m_buckets + bucket_index;
         int probe_length = 0;
         uint8_t low_bits = ( hash_val & 0xff ) | 0x80;
@@ -1033,13 +1029,13 @@ class HashSetBase {
     }
 
     void rehash() {
-        uint64_t current_num_buckets = uint64_t( 1 ) << m_bitshift;
-        uint64_t new_num_buckets = current_num_buckets * 2;
+        size_type current_num_buckets = size_type( 1 ) << std::countr_one( m_bitmask );
+        size_type new_num_buckets = current_num_buckets * 2;
         bucket_type* new_buckets = m_traits.allocate( new_num_buckets + 1 );
         new_buckets[ new_num_buckets ] = end_sentinel;
 
         std::swap( new_buckets, m_buckets );
-        m_bitshift++;
+        m_bitmask = ( m_bitmask << 1 ) | 1;
         m_occupied = 0;
 
         if ( current_num_buckets > 1 ) {
@@ -1057,9 +1053,10 @@ class HashSetBase {
   private:
     static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
     bucket_type* m_buckets{ &end_sentinel };
+    // bitwise and with m_bitmask gives us bucket index.
+    size_type m_bitmask{ 0 };
     size_type m_occupied = 0;
     float m_load_factor{ Traits::default_load_factor };
-    int m_bitshift{ 0 };
     [[no_unique_address]] Traits m_traits;
 };
 
