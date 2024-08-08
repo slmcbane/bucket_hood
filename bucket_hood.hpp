@@ -916,7 +916,7 @@ class HashSetBase {
 
     BH_ALWAYS_INLINE uint64_t bucket_index( uint64_t hash_val ) const {
         static constexpr uint64_t all_ones = ~uint64_t( 0 );
-        return hash_val & ~( all_ones << bitshift() );
+        return hash_val & ~( all_ones << m_bitshift );
     }
 
     template < transparent_key< Traits > K >
@@ -993,8 +993,8 @@ class HashSetBase {
      */
     template < transparent_key< Traits > K >
     BH_ALWAYS_INLINE Location locate( K&& key, uint64_t hash_val ) const {
-        auto bucket_index = hash_val & ( uint64_t( 1 ) << bitshift() );
-        bucket_type* bucket = buckets() + bucket_index;
+        auto bucket_index = hash_val & ( uint64_t( 1 ) << m_bitshift );
+        bucket_type* bucket = m_buckets + bucket_index;
         int probe_length = 0;
         uint8_t low_bits = ( hash_val & 0xff ) | 0x80;
 
@@ -1026,37 +1026,12 @@ class HashSetBase {
     }
 
   private:
-    struct PackedPointerAndShift {
-        static constexpr uintptr_t shift_mask = 0x1f;
-        static constexpr uintptr_t ptr_mask = ~shift_mask;
-        uintptr_t ptr_and_shift = 0;
-
-        BH_ALWAYS_INLINE bucket_type* get_pointer() const {
-            return reinterpret_cast< bucket_type* >( ptr_and_shift & ptr_mask );
-        }
-        BH_ALWAYS_INLINE uintptr_t get_shift() const { return ptr_and_shift & shift_mask; }
-
-        BH_ALWAYS_INLINE void set_shift( uintptr_t shift ) {
-            ptr_and_shift = ( ptr_and_shift & ptr_mask ) | shift;
-        }
-        BH_ALWAYS_INLINE void set_ptr( bucket_type* ptr ) {
-            ptr_and_shift = ( ptr_and_shift & shift_mask ) | reinterpret_cast< uintptr_t >( ptr );
-        }
-
-        PackedPointerAndShift( bucket_type* ptr, int shift ) {
-            set_shift( shift );
-            set_ptr( ptr );
-        }
-    };
-
     static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
-    PackedPointerAndShift m_buckets_and_shift{ &end_sentinel, 0 };
+    bucket_type* m_buckets{ &end_sentinel };
     size_type m_occupied = 0;
-    size_type m_rehash = 0;
+    float m_load_factor{ Traits::default_load_factor };
+    int m_bitshift{ 0 };
     [[no_unique_address]] Traits m_traits;
-
-    BH_ALWAYS_INLINE bucket_type* buckets() const { return m_buckets_and_shift.get_pointer(); }
-    BH_ALWAYS_INLINE uintptr_t bitshift() const { return m_buckets_and_shift.get_shift(); }
 };
 
 } // namespace bucket_hood
