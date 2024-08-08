@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include <bit>
 #include <concepts>
 #include <format>
 #include <functional>
@@ -23,7 +24,6 @@
 
 namespace bucket_hood {
 
-inline constexpr float default_load_factor = 0.95;
 typedef BUCKET_HOOD_SIZE_TYPE size_type;
 
 } // namespace bucket_hood
@@ -39,7 +39,6 @@ namespace bucket_hood {
 
 BH_ALWAYS_INLINE bool likely( long condition ) noexcept { return __builtin_expect( condition, 1 ); }
 BH_ALWAYS_INLINE bool unlikely( long condition ) noexcept { return __builtin_expect( condition, 0 ); }
-BH_ALWAYS_INLINE int ctz( unsigned x ) noexcept { return __builtin_ctz( x ); }
 [[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
 
 /********************************************************************************
@@ -828,21 +827,28 @@ struct SetIterator {
     typedef std::conditional_t< is_const, const value_type&, value_type& > reference;
     typedef std::ptrdiff_t difference_type;
     typedef std::forward_iterator_tag iterator_category;
+    typedef typename Bucket::mask_type mask_type;
+    static_assert( std::is_unsigned_v< mask_type > );
 
     SetIterator() noexcept = default;
+
+    explicit SetIterator( const Bucket* bucket ) noexcept
+        : m_bucket{ bucket }, m_slot_index{ std::numeric_limits< mask_type >::digits } {
+        CHECK( m_bucket->is_sentinel() );
+    }
 
     explicit SetIterator( const Bucket* bucket, int slot_index ) noexcept
         : m_bucket{ bucket }, m_slot_index{ slot_index } {
         CHECK( m_bucket );
         m_bucket_mask = m_bucket->occupied_mask();
-        CHECK( m_bucket_mask & ( 1 << slot_index ) );
-        m_bucket_mask &= ( ~0u << m_slot_index );
+        CHECK( m_bucket_mask & ( mask_type( 1 ) << slot_index ) );
+        m_bucket_mask &= ( ~mask_type( 0 ) << m_slot_index );
     }
 
     explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
         CHECK( m_bucket );
         m_bucket_mask = Bucket::occupied_mask( *m_bucket );
-        m_bucket_mask &= ( ~0u << slot_index );
+        m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
         scan_to_slot();
     }
 
@@ -872,15 +878,15 @@ struct SetIterator {
 
   private:
     std::conditional_t< is_const, const Bucket*, Bucket* > m_bucket{ nullptr };
-    int m_bucket_mask{ 0 };
+    mask_type m_bucket_mask{ 0 };
     int m_slot_index{ 0 };
 
     void scan_to_slot() noexcept {
-        while ( !m_bucket_mask ) {
+        while ( !m_bucket_mask && !m_bucket->is_sentinel() ) {
             m_bucket_mask = Bucket::occupied_mask( *++m_bucket );
         }
-        m_slot_index = ctz( m_bucket_mask );
-        m_bucket_mask ^= ( 1 << m_slot_index );
+        m_slot_index = std::countr_zero( m_bucket_mask );
+        m_bucket_mask ^= ( mask_type( 1 ) << m_slot_index );
     }
 };
 
@@ -905,6 +911,7 @@ class HashSetBase {
     typedef Traits::element_type element_type;
     typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
+    typedef Traits::mask_type mask_type;
 
     struct Location {
         bucket_type* bucket;
@@ -912,7 +919,7 @@ class HashSetBase {
         int probe_length;
     };
 
-    BH_ALWAYS_INLINE uint64_t hash( const key_type& key ) const { return m_traits.hash( key ); }
+    BH_ALWAYS_INLINE auto hash( const key_type& key ) const { return m_traits.hash( key ); }
 
     BH_ALWAYS_INLINE uint64_t bucket_index( uint64_t hash_val ) const {
         static constexpr uint64_t all_ones = ~uint64_t( 0 );
@@ -999,18 +1006,18 @@ class HashSetBase {
         uint8_t low_bits = ( hash_val & 0xff ) | 0x80;
 
         do {
-            int match_mask = bucket->matching_slots( low_bits );
+            auto match_mask = bucket->matching_slots( low_bits );
             while ( match_mask ) {
-                int slot = ctz( match_mask );
+                int slot = std::countr_zero( match_mask );
                 if ( likely( m_traits.compare( bucket->get( slot ), key ) ) ) {
                     return { bucket, slot, probe_length };
                 }
-                match_mask ^= 1 << slot;
+                match_mask ^= mask_type( 1 ) << slot;
             }
 
-            int empty_mask = bucket->empty_slots();
+            auto empty_mask = bucket->empty_slots();
             if ( empty_mask ) {
-                int slot = ctz( empty_mask );
+                int slot = std::countr_zero( empty_mask );
                 return { bucket, slot, probe_length };
             }
 
@@ -1023,6 +1030,28 @@ class HashSetBase {
         } while ( probe_length < 256 );
 
         return { nullptr, 0, 256 };
+    }
+
+    void rehash() {
+        uint64_t current_num_buckets = uint64_t( 1 ) << m_bitshift;
+        uint64_t new_num_buckets = current_num_buckets * 2;
+        bucket_type* new_buckets = m_traits.allocate( new_num_buckets + 1 );
+        new_buckets[ new_num_buckets ] = end_sentinel;
+
+        std::swap( new_buckets, m_buckets );
+        m_bitshift++;
+        m_occupied = 0;
+
+        if ( current_num_buckets > 1 ) {
+            SetIterator< bucket_type, false > it{ new_buckets, 0, EmptySlotTag{} };
+            SetIterator< bucket_type, false > end_( new_buckets + current_num_buckets );
+            while ( it != end_ ) {
+                insert( std::move( *it ) );
+                ++it;
+            }
+        }
+
+        m_traits.deallocate( new_buckets );
     }
 
   private:
