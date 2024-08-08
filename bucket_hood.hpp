@@ -848,7 +848,7 @@ struct SetIterator {
 
     explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
         CHECK( m_bucket );
-        m_bucket_mask = Bucket::occupied_mask( *m_bucket );
+        m_bucket_mask = m_bucket->occupied_mask();
         m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
         scan_to_slot();
     }
@@ -884,7 +884,8 @@ struct SetIterator {
 
     void scan_to_slot() noexcept {
         while ( !m_bucket_mask && !m_bucket->is_sentinel() ) {
-            m_bucket_mask = Bucket::occupied_mask( *++m_bucket );
+            ++m_bucket;
+            m_bucket_mask = m_bucket->occupied_mask();
         }
         m_slot_index = std::countr_zero( m_bucket_mask );
         m_bucket_mask ^= ( mask_type( 1 ) << m_slot_index );
@@ -909,10 +910,10 @@ template < class Traits >
 class HashSetBase {
   public:
     typedef Traits::bucket_type bucket_type;
-    typedef Traits::element_type element_type;
+    typedef bucket_type::value_type element_type;
+    typedef bucket_type::mask_type mask_type;
     typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
-    typedef Traits::mask_type mask_type;
 
     struct Location {
         bucket_type* bucket;
