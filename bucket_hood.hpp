@@ -908,21 +908,40 @@ concept transparent_key =
 
 template < class Traits >
 class HashSetBase {
-  public:
     typedef Traits::bucket_type bucket_type;
     typedef bucket_type::value_type element_type;
     typedef bucket_type::mask_type mask_type;
     typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
 
+    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
+    bucket_type* m_buckets{ &end_sentinel };
+    // bitwise and with m_bitmask gives us bucket index.
+    size_type m_bitmask{ 0 };
+    size_type m_occupied = 0;
+    float m_load_factor{ Traits::default_load_factor };
+    [[no_unique_address]] Traits m_traits;
+
+  protected:
     struct Location {
         bucket_type* bucket;
         int slot;
         int probe_length;
+
+        BH_ALWAYS_INLINE bool new_insertion() const {
+            return !bucket || ( slot < 0 || !bucket->occupied( slot ) );
+        }
     };
 
     BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
         return static_cast< size_type >( m_traits.hash( key ) );
+    }
+
+    BH_ALWAYS_INLINE void unchecked_emplace( const Location& where, auto&& val, size_type hash_val ) {
+        if ( unlikely( where.slot < 0 ) ) {
+            evict( where.bucket, where.slot );
+        }
+        where.bucket->set( where.slot, std::forward< decltype( val ) >( val ), hash_val, where.probe_length );
     }
 
     template < transparent_key< Traits > K >
@@ -941,52 +960,6 @@ class HashSetBase {
             return None;
         }
         return SomeRef( bucket->get( slot ) );
-    }
-
-    bool insert( const element_type& val ) {
-        const key_type& key = m_traits.get_key( val );
-        auto hash_val = hash( key );
-        while ( true ) {
-            auto [ bucket, slot, probe_length ] = locate( key, hash_val );
-            bool do_rehash = !bucket;
-            do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
-            if ( unlikely( do_rehash ) ) {
-                rehash();
-                continue;
-            } else if ( unlikely( slot < 0 ) ) {
-                evict( bucket, -slot );
-            }
-
-            if ( bucket->occupied( slot ) ) {
-                return false;
-            }
-            bucket->set( slot, val, hash_val, probe_length );
-            m_occupied++;
-            return true;
-        }
-    }
-
-    bool insert( element_type&& val ) {
-        key_type& key = m_traits.get_key( val );
-        auto hash_val = hash( key );
-        while ( true ) {
-            auto [ bucket, slot, probe_length ] = locate( key, hash_val );
-            bool do_rehash = !bucket;
-            do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
-            if ( unlikely( do_rehash ) ) {
-                rehash();
-                continue;
-            } else if ( unlikely( slot < 0 ) ) {
-                evict( bucket, -slot );
-            }
-
-            if ( bucket->occupied( slot ) ) {
-                return false;
-            }
-            bucket->set( slot, std::move( val ), hash_val, probe_length );
-            m_occupied++;
-            return true;
-        }
     }
 
     /*
@@ -1050,15 +1023,6 @@ class HashSetBase {
 
         m_traits.deallocate( new_buckets );
     }
-
-  private:
-    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
-    bucket_type* m_buckets{ &end_sentinel };
-    // bitwise and with m_bitmask gives us bucket index.
-    size_type m_bitmask{ 0 };
-    size_type m_occupied = 0;
-    float m_load_factor{ Traits::default_load_factor };
-    [[no_unique_address]] Traits m_traits;
 };
 
 } // namespace bucket_hood
