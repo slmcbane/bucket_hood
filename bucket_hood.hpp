@@ -884,63 +884,26 @@ struct SetIterator {
     }
 };
 
-template < class Bucket >
-concept valid_bucket_type =
-    alignof( typename Bucket::bucket_type ) >= 64 && requires( Bucket& b, uint8_t low_bits ) {
-        { b.matching_slots( low_bits ) } -> std::same_as< int >;
-        { b.empty_slots() } -> std::same_as< int >;
-        { b.get( std::declval< int >() ) };
-    };
+// To use heterogeneous lookup, specialize these two templates for your hash type and comparison type.
+// If 'transparent_key<Traits, K>' is satisfied then K can be used in place of the real key type.
+template < class Hash, class K >
+struct is_transparent_hash : std::false_type {};
 
-template < class Traits >
-concept valid_traits_type = std::is_default_constructible_v< Traits > &&
-                            std::is_copy_constructible_v< Traits > && std::is_move_constructible_v< Traits > &&
-                            valid_bucket_type< typename Traits::bucket_type > && requires( Traits& t ) {
-                                {
-                                    t.allocate( std::declval< size_type >() )
-                                } -> std::same_as< typename Traits::bucket_type* >;
-                                {
-                                    t.deallocate( std::declval< typename Traits::bucket_type* >() )
-                                } -> std::same_as< void >;
-                                {
-                                    t.comparison()( std::declval< const typename Traits::value_type& >(),
-                                                    std::declval< const typename Traits::value_type& >() )
-                                } -> std::same_as< bool >;
-                            };
+template < class Comparison, class K >
+struct is_transparent_comparison : std::false_type {};
 
 template < class Traits, class K >
-concept has_transparent_comparison = Traits::comparison_type::template is_transparent< K >;
-
-template < class T, class Policy >
-concept is_policy = requires( T& ref, const T& const_ref ) {
-    Policy::from_value( ref );
-    Policy::from_value( const_ref );
-    Policy::from_null();
-    static_cast< decltype( Policy::from_value( ref ) ) >( Policy::from_null() );
-    static_cast< decltype( Policy::from_value( const_ref ) ) >( Policy::from_null() );
-};
-
-struct return_value {
-    template < class T, class U >
-    BH_ALWAYS_INLINE static auto from_value( std::pair< T, U >& pair ) -> Optional< U& > {
-        return SomeRef( pair.second );
-    }
-
-    template < class T, class U >
-    BH_ALWAYS_INLINE static auto from_value( const std::pair< T, U >& pair ) -> Optional< const U& > {
-        return SomeRef( pair.second );
-    }
-
-    BH_ALWAYS_INLINE static auto from_value( auto& x ) { return Optional( SomeRef( x ) ); }
-
-    BH_ALWAYS_INLINE static auto from_null() { return None; }
-};
+concept transparent_key =
+    std::disjunction_v< std::is_same< std::remove_cvref_t< K >, typename Traits::key_type >,
+                        std::conjunction< is_transparent_hash< typename Traits::hash_type, K >,
+                                          is_transparent_comparison< typename Traits::comparison_type, K > > >;
 
 template < class Traits >
-requires valid_traits_type< Traits >
 class HashSetBase {
   public:
     typedef Traits::bucket_type bucket_type;
+    typedef Traits::element_type element_type;
+    typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
 
     struct Location {
@@ -949,35 +912,38 @@ class HashSetBase {
         int probe_length;
     };
 
+    BH_ALWAYS_INLINE uint64_t hash( const key_type& key ) const { return m_traits.hash( key ); }
+
     BH_ALWAYS_INLINE uint64_t bucket_index( uint64_t hash_val ) const {
         static constexpr uint64_t all_ones = ~uint64_t( 0 );
         return hash_val & ~( all_ones << bitshift() );
     }
 
-    template < is_policy< value_type > Policy = return_value, has_transparent_comparison< Traits > K >
-    auto find( K&& key ) {
+    template < transparent_key< Traits > K >
+    Optional< value_type& > find( K&& key ) {
         uint64_t hash_val = m_traits.hash( key );
-        auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+        auto [ bucket, slot, probe_length ] = locate( key, hash_val );
         if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
-            return Policy::from_null();
+            return None;
         }
-        return Policy::from_value( bucket->get( slot ) );
+        return SomeRef( bucket->get( slot ) );
     }
 
-    template < is_policy< value_type > Policy = return_value, has_transparent_comparison< Traits > K >
-    auto find( K&& key ) const {
+    template < transparent_key< Traits > K >
+    Optional< const value_type& > find( K&& key ) const {
         uint64_t hash_val = m_traits.hash( key );
-        auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+        auto [ bucket, slot, probe_length ] = locate( key, hash_val );
         if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
-            return Policy::from_null();
+            return None;
         }
-        return Policy::from_value( bucket->get( slot ) );
+        return SomeRef( bucket->get( slot ) );
     }
 
-    bool insert( const value_type& val ) {
-        uint64_t hash_val = m_traits.hash( val );
+    bool insert( const element_type& val ) {
+        const key_type& key = m_traits.get_key( val );
+        uint64_t hash_val = m_traits.hash( key );
         while ( true ) {
-            auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+            auto [ bucket, slot, probe_length ] = locate( key, hash_val );
             bool do_rehash = !bucket;
             do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
             if ( unlikely( do_rehash ) ) {
@@ -996,10 +962,11 @@ class HashSetBase {
         }
     }
 
-    bool insert( value_type&& val ) {
-        uint64_t hash_val = m_traits.hash( val );
+    bool insert( element_type&& val ) {
+        key_type& key = m_traits.get_key( val );
+        uint64_t hash_val = m_traits.hash( key );
         while ( true ) {
-            auto [ bucket, slot, probe_length ] = find_( key, hash_val );
+            auto [ bucket, slot, probe_length ] = locate( key, hash_val );
             bool do_rehash = !bucket;
             do_rehash = do_rehash || ( ( slot < 0 || bucket->occupied( slot ) ) && m_occupied + 1 >= m_rehash );
             if ( unlikely( do_rehash ) ) {
@@ -1024,7 +991,7 @@ class HashSetBase {
      * is < 0 to indicate the fact. If probe length overflows an 8-bit integer the returned
      * probe length is 256 and returned bucket is nullptr (this requires a rehash).
      */
-    template < has_transparent_comparison< Traits > K >
+    template < transparent_key< Traits > K >
     BH_ALWAYS_INLINE Location locate( K&& key, uint64_t hash_val ) const {
         auto bucket_index = hash_val & ( uint64_t( 1 ) << bitshift() );
         bucket_type* bucket = buckets() + bucket_index;
@@ -1035,7 +1002,7 @@ class HashSetBase {
             int match_mask = bucket->matching_slots( low_bits );
             while ( match_mask ) {
                 int slot = ctz( match_mask );
-                if ( likely( m_traits.comparison()( bucket->get( slot ), key ) ) ) {
+                if ( likely( m_traits.compare( bucket->get( slot ), key ) ) ) {
                     return { bucket, slot, probe_length };
                 }
                 match_mask ^= 1 << slot;
