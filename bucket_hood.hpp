@@ -919,7 +919,8 @@ class HashSetBase {
     // bitwise and with m_bitmask gives us bucket index.
     size_type m_bitmask{ 0 };
     size_type m_occupied = 0;
-    float m_load_factor{ Traits::default_load_factor };
+    size_type m_rehash = 0;
+    float m_max_load_factor{ Traits::default_load_factor };
     [[no_unique_address]] Traits m_traits;
 
   protected:
@@ -932,6 +933,8 @@ class HashSetBase {
             return !bucket || ( slot < 0 || !bucket->occupied( slot ) );
         }
     };
+
+    BH_ALWAYS_INLINE bool should_rehash() const { return m_occupied + 1 >= m_rehash; }
 
     BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
         return static_cast< size_type >( m_traits.hash( key ) );
@@ -1011,6 +1014,7 @@ class HashSetBase {
         std::swap( new_buckets, m_buckets );
         m_bitmask = ( m_bitmask << 1 ) | 1;
         m_occupied = 0;
+        m_rehash = m_max_load_factor * new_num_buckets;
 
         if ( current_num_buckets > 1 ) {
             SetIterator< bucket_type, false > it{ new_buckets, 0, EmptySlotTag{} };
