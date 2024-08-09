@@ -1055,7 +1055,7 @@ class HashSetBase {
         std::swap( new_buckets, m_buckets );
         m_bitmask = ( m_bitmask << 1 ) | 1;
         m_occupied = 0;
-        m_rehash = m_max_load_factor * new_num_buckets;
+        m_rehash = m_max_load_factor * num_slots();
 
         if ( current_num_buckets > 1 ) {
             SetIterator< bucket_type, false > it{ new_buckets, 0, EmptySlotTag{} };
