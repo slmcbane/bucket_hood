@@ -942,6 +942,29 @@ class HashSetBase {
     float m_max_load_factor{ Traits::default_load_factor };
     [[no_unique_address]] Traits m_traits;
 
+    void evict( bucket_type* bucket ) {
+        int slot = bucket->min_probe_length_slot();
+        auto [ evicted, hash_bits, probe_len ] = bucket->extract( slot );
+
+        size_type bucket_index = bucket - m_buckets;
+        do {
+            bucket_index++;
+            probe_len++;
+            bucket_index &= m_bitmask;
+            bucket = m_buckets + bucket_index;
+
+            auto empty_mask = bucket->empty_slots();
+            if ( empty_mask ) {
+                slot = std::countr_zero( empty_mask );
+                bucket->emplace( slot, std::move( evicted ), hash_bits, probe_len );
+                return;
+            } else if ( bucket->all_probe_lengths_shorter_than( probe_len ) ) {
+                slot = bucket->min_probe_length_slot();
+                bucket->swap( slot, evicted, hash_bits, probe_len );
+            }
+        } while ( true );
+    }
+
   protected:
     static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
 
@@ -968,9 +991,10 @@ class HashSetBase {
 
     BH_ALWAYS_INLINE void unchecked_emplace( const Location& where, auto&& val, size_type hash_val ) {
         if ( unlikely( where.slot < 0 ) ) {
-            evict( where.bucket, where.slot );
+            evict( where.bucket );
         }
-        where.bucket->set( where.slot, std::forward< decltype( val ) >( val ), hash_val, where.probe_length );
+        where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val,
+                               where.probe_length );
     }
 
     template < transparent_key< Traits > K >
