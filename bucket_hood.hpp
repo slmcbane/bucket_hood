@@ -92,6 +92,25 @@ BH_ALWAYS_INLINE constexpr void check( bool condition, const char* condition_tex
 #endif // SLM_CHECK_REQUIRE_HPP
 
 /********************************************************************************
+ * Safely multiply two size_types; protect against overflow.
+ * Probably not a concern for 64-bit size_type but for the 32-bit default it can
+ * definitely realistically happen.
+ *******************************************************************************/
+
+BH_ALWAYS_INLINE size_type bounds_checked_mul( size_type a, size_type b ) {
+    if constexpr ( std::is_same_v< size_type, uint32_t > ) {
+        uint64_t a_ = a;
+        uint64_t b_ = b;
+        uint64_t c = a_ * b_;
+        REQUIRE( c <= std::numeric_limits< size_type >::max(), "Overflowed 32-bit size_type" );
+        return c;
+    } else {
+        // Currently not doing any check for 64-bit. Surely you would exhaust memory first.
+        return a * b;
+    }
+}
+
+/********************************************************************************
  * Hashing functions and utilities.
  *******************************************************************************/
 
@@ -924,6 +943,8 @@ class HashSetBase {
     [[no_unique_address]] Traits m_traits;
 
   protected:
+    static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
+
     struct Location {
         bucket_type* bucket;
         int slot;
@@ -935,6 +956,11 @@ class HashSetBase {
     };
 
     BH_ALWAYS_INLINE bool should_rehash() const { return m_occupied + 1 >= m_rehash; }
+
+    BH_ALWAYS_INLINE size_type num_buckets() const { return size_type( 1 ) << std::countr_one( m_bitmask ); }
+    BH_ALWAYS_INLINE size_type num_slots() const {
+        return bounds_checked_mul( num_buckets() * bucket_type::num_slots );
+    }
 
     BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
         return static_cast< size_type >( m_traits.hash( key ) );
@@ -1005,9 +1031,24 @@ class HashSetBase {
         return { nullptr, 0, 256 };
     }
 
-    void rehash() {
-        size_type current_num_buckets = size_type( 1 ) << std::countr_one( m_bitmask );
-        size_type new_num_buckets = current_num_buckets * 2;
+  public:
+    void set_max_load_factor( float lf ) {
+        REQUIRE( lf > 0 && lf < 1, "Max load factor must be in (0, 1); provided: {:f}", lf );
+        m_max_load_factor = lf;
+        m_rehash = num_slots() * m_max_load_factor;
+    }
+
+    void rehash( size_type sz ) {
+        size_type current_num_buckets = num_slots();
+        size_type new_num_buckets;
+        if ( sz ) {
+            float new_num_buckets_ = sz / m_max_load_factor;
+            REQUIRE( new_num_buckets_ < static_cast< float >( max_num_buckets ), "Overflowed size_type" );
+            new_num_buckets = static_cast< size_type >( new_num_buckets_ );
+            new_num_buckets = std::bit_ceil( new_num_buckets );
+        } else {
+            new_num_buckets = bounds_checked_mul( current_num_buckets, 2 );
+        }
         bucket_type* new_buckets = m_traits.allocate( new_num_buckets + 1 );
         new_buckets[ new_num_buckets ] = end_sentinel;
 
