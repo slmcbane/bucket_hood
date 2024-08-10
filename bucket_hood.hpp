@@ -1026,10 +1026,10 @@ class HashSetBase {
         auto bucket_index = hash_val & m_bitmask;
         bucket_type* bucket = m_buckets + bucket_index;
         int probe_length = 0;
-        uint8_t low_bits = ( hash_val & 0xff ) | 0x80;
+        auto check_bits = bucket_type::get_check_bits( hash_val );
 
         do {
-            auto match_mask = bucket->matching_slots( low_bits );
+            auto match_mask = bucket->matching_slots( check_bits );
             while ( match_mask ) {
                 int slot = std::countr_zero( match_mask );
                 if ( likely( m_traits.compare( bucket->get( slot ), key ) ) ) {
@@ -1092,6 +1092,117 @@ class HashSetBase {
 
         m_traits.deallocate( new_buckets );
     }
+};
+
+template < class T >
+struct DebugBucket {
+    typedef T value_type;
+    typedef unsigned mask_type;
+    static constexpr size_type num_slots = 8;
+
+    uint8_t hash_bits[ 8 ]{ 0 };
+    uint8_t probe_lengths[ 8 ]{ 0 };
+
+    bool is_sentinel() const {
+        uint64_t bitmask = std::bit_cast< uint64_t >( hash_bits );
+        return bitmask != 0 && ( bitmask & 0x0101010101010101ul ) == 0;
+    }
+
+    static consteval DebugBucket end_sentinel() {
+        return { .hash_bits = { 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0 },
+                 .probe_lengths = { 0 },
+                 .slots = {} };
+    }
+
+    bool occupied( int slot ) const {
+        REQUIRE( slot < 8 );
+        return hash_bits[ slot ];
+    }
+
+    T& get( int slot ) {
+        REQUIRE( occupied( slot ) );
+        return slots[ slot ].payload;
+    }
+
+    const T& get( int slot ) const {
+        REQUIRE( occupied( slot ) );
+        return slots[ slot ].payload;
+    }
+
+    void emplace( int slot, auto&& val, size_type hash_val, int probe_length ) {
+        REQUIRE( !occupied( slot ) && probe_length < 256 );
+        std::construct_at( &slots[ slot ].payload, std::forward< decltype( val ) >( val ) );
+        hash_bits[ slot ] = ( hash_val & 0xff ) | 1;
+        probe_lengths[ slot ] = probe_length;
+    }
+
+    void swap( int slot, T& x, uint8_t& hash_bits, int& probe_len ) {
+        using std::swap;
+        REQUIRE( hash_bits & 1 );
+        swap( get( slot ), x );
+        swap( this->hash_bits[ slot ], hash_bits );
+        swap( probe_lengths[ slot ], probe_len );
+    }
+
+    auto extract( int slot ) {
+        REQUIRE( slot >= 0 && slot < 8 );
+        auto out = std::make_tuple( std::move( get( slot ) ), hash_bits[ slot ], probe_lengths[ slot ] );
+    }
+
+    static uint8_t get_check_bits( size_type hash_val ) {
+        return ( hash_val >> ( std::numeric_limits< size_type >::digits - 8 ) ) | 1;
+    }
+
+    mask_type matching_slots( uint8_t check_bits ) const {
+        mask_type out = 0;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( check_bits == hash_bits[ slot ] ) {
+                out |= ( 1u << slot );
+            }
+        }
+        return out;
+    }
+
+    mask_type empty_slots() const {
+        mask_type out = 0;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( !occupied( slot ) ) {
+                out |= ( 1u << slot );
+            }
+        }
+        return out;
+    }
+
+    bool all_probe_lengths_shorter_than( int probe_length ) const {
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( probe_lengths[ slot ] >= probe_length ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int min_probe_length_slot() const {
+        int min = 256;
+        int min_slot = -1;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( probe_lengths[ slot ] < min ) {
+                min = probe_lengths[ slot ];
+                min_slot = slot;
+            }
+        }
+        REQUIRE( min_slot >= 0 && min_slot < 8 );
+        return min_slot;
+    }
+
+    union Slot {
+        char dummy;
+        T payload;
+
+        Slot() : dummy() {}
+    };
+
+    Slot slots[ 8 ];
 };
 
 } // namespace bucket_hood
