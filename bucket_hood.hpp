@@ -1096,24 +1096,7 @@ class HashSetBase {
         }
         where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val,
                                where.probe_length );
-    }
-
-    template < transparent_key< Traits > K >
-    Optional< value_type& > find( K&& key ) {
-        auto [ bucket, slot, probe_length ] = locate( key, hash( key ) );
-        if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
-            return None;
-        }
-        return SomeRef( bucket->get( slot ) );
-    }
-
-    template < transparent_key< Traits > K >
-    Optional< const value_type& > find( K&& key ) const {
-        auto [ bucket, slot, probe_length ] = locate( key, hash( key ) );
-        if ( !bucket || slot < 0 || !( bucket->occupied( slot ) ) ) {
-            return None;
-        }
-        return SomeRef( bucket->get( slot ) );
+        m_occupied++;
     }
 
     /*
@@ -1157,6 +1140,9 @@ class HashSetBase {
     }
 
   public:
+    size_type size() const { return m_occupied; }
+    bool empty() const { return m_occupied == 0; }
+
     void clear() {
         destroy_entries();
         if ( m_bitmask ) {
@@ -1398,6 +1384,52 @@ class TraitsForSet {
             occupied_mask ^= mask_type( 1 ) << occupied_slot;
             destroy_at( &where->get( occupied_slot ) );
         }
+    }
+};
+
+template < class Key, class Hash = std::hash< Key >, class KeyEqual = std::equal_to< Key >,
+           class Allocator = std::allocator< Key > >
+class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, Allocator, DebugBucket > > {
+    typedef TraitsForSet< Key, Hash, KeyEqual, Allocator, DebugBucket > Traits;
+
+  public:
+    template < transparent_key< Traits > K >
+    bool contains( const K& key ) const {
+        auto [ bucket, slot, _ ] = this->locate( key, this->hash( key ) );
+        return bucket && slot >= 0 && bucket->occupied( slot );
+    }
+
+    // For compatibility with std interface, for testing.
+    template < transparent_key< Traits > K >
+    size_type count( const K& key ) const {
+        return contains( key );
+    }
+
+    template < transparent_key< Traits > K >
+    requires std::constructible_from< Key, K&& >
+    bool emplace( K&& key ) {
+        size_type hash_val = this->hash( key );
+        auto location = this->locate( key, hash_val );
+        if ( !location.new_insertion() ) {
+            return false;
+        }
+
+        while ( this->should_rehash() || unlikely( !location.bucket ) ) {
+            this->rehash();
+            location = this->locate( key, hash_val );
+        }
+
+        this->unchecked_emplace( location, std::forward< K >( key ), hash_val );
+    }
+
+    template < class... Args >
+    bool emplace( Args&&... args ) {
+        emplace( Key( std::forward< Args >( args )... ) );
+    }
+
+    template < transparent_key< Traits > K >
+    bool insert( K&& key ) {
+        emplace( std::forward< K >( key ) );
     }
 };
 
