@@ -925,6 +925,9 @@ concept transparent_key =
                         std::conjunction< is_transparent_hash< typename Traits::hash_type, K >,
                                           is_transparent_comparison< typename Traits::comparison_type, K > > >;
 
+// Passed to bucket copy constructors to ensure that accidental copies can't be made.
+struct CopyTag {};
+
 template < class Traits >
 class HashSetBase {
     typedef Traits::bucket_type bucket_type;
@@ -932,6 +935,8 @@ class HashSetBase {
     typedef bucket_type::mask_type mask_type;
     typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
+
+    static_assert( std::is_trivially_destructible_v< bucket_type > );
 
     static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
     bucket_type* m_buckets{ &end_sentinel };
@@ -965,7 +970,103 @@ class HashSetBase {
         } while ( true );
     }
 
+    BH_ALWAYS_INLINE void destroy_entries() {
+        if constexpr ( !std::is_trivially_destructible_v< element_type > ) {
+            for ( size_type i = 0; i < num_buckets(); ++i ) {
+                m_traits.destroy_at( m_buckets + i );
+            }
+        }
+    }
+
   protected:
+    HashSetBase() = default;
+
+    HashSetBase( HashSetBase&& other )
+        : m_buckets{ other.m_buckets }, m_bitmask{ other.m_bitmask }, m_occupied{ other.m_occupied },
+          m_rehash{ other.m_rehash }, m_max_load_factor{ other.m_max_load_factor },
+          m_traits{ std::move( other.m_traits ) } {
+        other.m_buckets = &end_sentinel;
+        other.m_bitmask = other.m_occupied = other.m_rehash = 0;
+    }
+
+    HashSetBase& operator=( HashSetBase&& other ) {
+        destroy_entries();
+        if ( m_bitmask ) {
+            m_traits.deallocate( m_buckets );
+        }
+
+        m_buckets = other.m_buckets;
+        m_bitmask = other.m_bitmask;
+        m_occupied = other.m_occupied;
+        m_rehash = other.m_rehash;
+        m_max_load_factor = other.m_max_load_factor;
+        m_traits = std::move( other.m_traits );
+        other.m_buckets = &end_sentinel;
+        other.m_bitmask = other.m_occupied = other.m_rehash = 0;
+        return *this;
+    }
+
+    HashSetBase( const HashSetBase& other )
+        : m_bitmask{ other.m_bitmask }, m_occupied{ other.m_occupied }, m_rehash{ other.m_rehash },
+          m_max_load_factor{ other.m_max_load_factor }, m_traits{ other.m_traits } {
+        if ( !m_bitmask ) {
+            return;
+        }
+        m_buckets = m_traits.allocate( num_buckets() );
+        for ( size_type i = 0; i < num_buckets(); ++i ) {
+            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], CopyTag{} );
+        }
+    }
+
+    HashSetBase& operator=( const HashSetBase& other ) {
+        if ( other.empty() ) {
+            clear();
+            m_max_load_factor = other.m_max_load_factor;
+            m_traits = other.m_traits;
+            return *this;
+        }
+
+        destroy_entries();
+
+        m_occupied = other.m_occupied;
+        m_rehash = other.m_rehash;
+        m_max_load_factor = other.m_max_load_factor;
+        if ( m_bitmask != other.m_bitmask ) {
+            m_traits.deallocate( m_buckets );
+            m_bitmask = other.m_bitmask;
+            m_traits = other.m_traits;
+            m_buckets = m_traits.allocate( num_buckets() );
+        } else {
+            m_traits = other.m_traits;
+        }
+
+        for ( size_type i = 0; i < num_buckets(); ++i ) {
+            // Ok because I've static asserted that buckets are trivially destructible.
+            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], CopyTag{} );
+        }
+
+        return *this;
+    }
+
+    void swap( HashSetBase& other ) {
+        using std::swap;
+        swap( m_buckets, other.m_buckets );
+        swap( m_bitmask, other.m_bitmask );
+        swap( m_occupied, other.m_occupied );
+        swap( m_rehash, other.m_rehash );
+        swap( m_max_load_factor, other.m_max_load_factor );
+        swap( m_traits, other.m_traits );
+    }
+
+    friend void swap( HashSetBase& a, HashSetBase& b ) { a.swap( b ); }
+
+    ~HashSetBase() {
+        destroy_entries();
+        if ( m_bitmask ) {
+            m_traits.deallocate( m_buckets );
+        }
+    }
+
     static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
 
     struct Location {
@@ -1056,6 +1157,16 @@ class HashSetBase {
     }
 
   public:
+    void clear() {
+        destroy_entries();
+        if ( m_bitmask ) {
+            m_traits.deallocate( m_buckets );
+        }
+
+        m_buckets = &end_sentinel;
+        m_occupied = m_bitmask = m_rehash = 0;
+    }
+
     void set_max_load_factor( float lf ) {
         REQUIRE( lf > 0 && lf < 1, "Max load factor must be in (0, 1); provided: {:f}", lf );
         m_max_load_factor = lf;
@@ -1210,7 +1321,6 @@ struct DebugBucket {
 };
 
 template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
-requires std::is_trivially_destructible_v< Bucket< T > >
 class TraitsForSet {
     [[no_unique_address]] selected_hash< Hash > m_hash;
     [[no_unique_address]] Compare m_comparison;
@@ -1225,26 +1335,48 @@ class TraitsForSet {
     typedef std::allocator_traits< Allocator >::template rebind_traits< bucket_type > bucket_allocator_traits;
     typedef std::allocator_traits< Allocator >::template rebind_traits< value_type > value_allocator_traits;
 
+    TraitsForSet() = default;
+    TraitsForSet( const Allocator& alloc ) : m_allocator{ alloc } {}
+    TraitsForSet( TraitsForSet&& ) = default;
+    TraitsForSet( const TraitsForSet& other )
+        : m_hash{ other.m_hash }, m_comparison{ other.m_comparison },
+          m_allocator{
+              std::allocator_traits< Allocator >::select_on_container_copy_construction( other.m_allocator ) } {
+    }
+
+    TraitsForSet& operator=( TraitsForSet&& other ) {
+        m_hash = std::move( other.m_hash );
+        m_comparison = std::move( other.m_comparison );
+        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_move_assignment::value ) {
+            m_allocator = std::move( other.m_allocator );
+        }
+        return *this;
+    }
+
+    TraitsForSet& operator=( const TraitsForSet& other ) {
+        m_hash = other.m_hash;
+        m_comparison = std::move( other.m_comparison );
+        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_copy_assignment::value ) {
+            m_allocator = other.m_allocator;
+        }
+        return *this;
+    }
+
+    friend void swap( TraitsForSet& a, TraitsForSet& b ) {
+        using std::swap;
+        swap( a.m_hash, b.m_hash );
+        swap( a.m_comparison, b.m_comparison );
+        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_swap::value ) {
+            swap( a.m_allocator, b.m_allocator );
+        }
+    }
+
     auto hash( auto&& key ) const { return m_hash( key ); }
     bool compare( auto&& k1, auto&& k2 ) const { return m_comparison( k1, k2 ); }
 
     // Note: _does_ construct the buckets in the returned memory, unlike allocator::allocate.
-    bucket_type* allocate( size_type n ) {
-        bucket_type* mem = bucket_allocator_traits::allocate( m_allocator, n );
-        for ( size_type i = 0; i < n; ++i ) {
-            construct_at( mem + i );
-        }
-        return mem;
-    }
-
-    void deallocate( bucket_type* mem, size_type n ) {
-        if constexpr ( !std::is_trivially_destructible_v< value_type > ) {
-            for ( size_type i = 0; i < n; ++i ) {
-                destroy_at( mem + i );
-            }
-        }
-        bucket_allocator_traits::deallocate( m_allocator, n );
-    }
+    bucket_type* allocate( size_type n ) { return bucket_allocator_traits::allocate( m_allocator, n ); }
+    void deallocate( bucket_type* mem ) { bucket_allocator_traits::deallocate( m_allocator, mem ); }
 
     BH_ALWAYS_INLINE void construct_at( value_type* where, auto&&... args ) {
         value_allocator_traits::construct( m_allocator, where, std::forward< decltype( args ) >( args )... );
