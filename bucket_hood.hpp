@@ -939,7 +939,7 @@ class HashSetBase {
     size_type m_bitmask{ 0 };
     size_type m_occupied = 0;
     size_type m_rehash = 0;
-    float m_max_load_factor{ Traits::default_load_factor };
+    float m_max_load_factor{ bucket_type::default_load_factor };
     [[no_unique_address]] Traits m_traits;
 
     void evict( bucket_type* bucket ) {
@@ -1129,9 +1129,9 @@ struct DebugBucket {
         return slots[ slot ].payload;
     }
 
-    void emplace( int slot, auto&& val, size_type hash_val, int probe_length ) {
+    void emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
         REQUIRE( !occupied( slot ) && probe_length < 256 );
-        std::construct_at( &slots[ slot ].payload, std::forward< decltype( val ) >( val ) );
+        traits.construct_at( &slots[ slot ].payload, std::forward< decltype( val ) >( val ) );
         hash_bits[ slot ] = ( hash_val & 0xff ) | 1;
         probe_lengths[ slot ] = probe_length;
     }
@@ -1144,9 +1144,13 @@ struct DebugBucket {
         swap( probe_lengths[ slot ], probe_len );
     }
 
-    auto extract( int slot ) {
+    auto extract( int slot, auto& traits ) {
         REQUIRE( slot >= 0 && slot < 8 );
         auto out = std::make_tuple( std::move( get( slot ) ), hash_bits[ slot ], probe_lengths[ slot ] );
+        traits.destroy_at( &slots[ slot ].payload );
+        // I believe we don't need to reset hash_bits or probe_lengths because we know we will unconditionally
+        // assign to this slot.
+        return out;
     }
 
     static uint8_t get_check_bits( size_type hash_val ) {
@@ -1203,6 +1207,66 @@ struct DebugBucket {
     };
 
     Slot slots[ 8 ];
+};
+
+template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
+requires std::is_trivially_destructible_v< Bucket< T > >
+class TraitsForSet {
+    [[no_unique_address]] selected_hash< Hash > m_hash;
+    [[no_unique_address]] Compare m_comparison;
+    [[no_unique_address]] Allocator m_allocator;
+
+  public:
+    typedef T key_type;
+    typedef T value_type;
+    typedef Bucket< T > bucket_type;
+    typedef selected_hash< Hash > hash_type;
+    typedef Compare comparison_type;
+    typedef std::allocator_traits< Allocator >::template rebind_traits< bucket_type > bucket_allocator_traits;
+    typedef std::allocator_traits< Allocator >::template rebind_traits< value_type > value_allocator_traits;
+
+    auto hash( auto&& key ) const { return m_hash( key ); }
+    bool compare( auto&& k1, auto&& k2 ) const { return m_comparison( k1, k2 ); }
+
+    // Note: _does_ construct the buckets in the returned memory, unlike allocator::allocate.
+    bucket_type* allocate( size_type n ) {
+        bucket_type* mem = bucket_allocator_traits::allocate( m_allocator, n );
+        for ( size_type i = 0; i < n; ++i ) {
+            construct_at( mem + i );
+        }
+        return mem;
+    }
+
+    void deallocate( bucket_type* mem, size_type n ) {
+        if constexpr ( !std::is_trivially_destructible_v< value_type > ) {
+            for ( size_type i = 0; i < n; ++i ) {
+                destroy_at( mem + i );
+            }
+        }
+        bucket_allocator_traits::deallocate( m_allocator, n );
+    }
+
+    BH_ALWAYS_INLINE void construct_at( value_type* where, auto&&... args ) {
+        value_allocator_traits::construct( m_allocator, where, std::forward< decltype( args ) >( args )... );
+    }
+
+    BH_ALWAYS_INLINE void destroy_at( value_type* where ) {
+        value_allocator_traits::destroy( m_allocator, where );
+    }
+
+    BH_ALWAYS_INLINE void construct_at( bucket_type* where ) {
+        bucket_allocator_traits::construct( m_allocator, where );
+    }
+
+    BH_ALWAYS_INLINE void destroy_at( bucket_type* where ) {
+        using mask_type = typename bucket_type::mask_type;
+        mask_type occupied_mask = where->occupied_mask;
+        while ( occupied_mask ) {
+            int occupied_slot = std::countr_one( occupied_mask );
+            occupied_mask ^= mask_type( 1 ) << occupied_slot;
+            destroy_at( &where->get( occupied_slot ) );
+        }
+    }
 };
 
 } // namespace bucket_hood
