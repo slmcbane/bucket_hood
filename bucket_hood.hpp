@@ -1183,9 +1183,8 @@ class HashSetBase {
                 rehash_insert( std::move( *it ) );
                 ++it;
             }
+            m_traits.deallocate( new_buckets, current_num_buckets + 1 );
         }
-
-        m_traits.deallocate( new_buckets, current_num_buckets + 1 );
     }
 };
 
