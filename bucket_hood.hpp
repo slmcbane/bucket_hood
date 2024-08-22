@@ -1231,10 +1231,7 @@ struct DebugBucket {
         return hash_bits[ slot ] > 0x80;
     }
 
-    T& get( int slot ) {
-        assert( occupied( slot ) );
-        return *std::launder( reinterpret_cast< T* >( slots[ slot ].storage ) );
-    }
+    T& get( int slot ) { return *std::launder( reinterpret_cast< T* >( slots[ slot ].storage ) ); }
 
     const T& get( int slot ) const {
         assert( occupied( slot ) );
