@@ -1,7 +1,10 @@
 #ifndef SET_INSERT_ONLY_TESTS_HPP
 #define SET_INSERT_ONLY_TESTS_HPP
 
-#include "../bucket_hood/unordered_set.hpp"
+#include <cassert>
+
+#include "../bucket_hood.hpp"
+
 #include "doctest.h"
 #include "test_utils.hpp"
 #include "unordered_dense.h"
@@ -30,11 +33,11 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
     for ( int i = 0; i < count; ++i ) {
         int to_insert = generator();
         bool inserted = ref_set.insert( to_insert ).second;
-        bool binserted = my_set.insert( to_insert ).second;
+        bool binserted = my_set.insert( to_insert );
         REQUIRE_MESSAGE( inserted == binserted, "Insertion test failed for x = ", to_insert );
         if ( ( i + 1 ) % granularity == 0 ) {
             for ( int x : ref_set ) {
-                REQUIRE_MESSAGE( !( my_set.find( x ) == my_set.end() ), "Failed finding ", x, " in my_set" );
+                REQUIRE_MESSAGE( my_set.contains( x ), "Failed finding ", x, " in my_set" );
             }
         }
     }

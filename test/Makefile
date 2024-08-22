@@ -1,6 +1,6 @@
 all: benchmarks test
 
-CXXFLAGS += -Wall -Wextra -pedantic -march=native -std=c++17
+CXXFLAGS += -Wall -Wextra -pedantic -march=native -std=c++20 -g
 
 insert_access: benchmark_insert_access.o nanobench.o
 	$(CXX) $(CXXFLAGS) benchmark_insert_access.o nanobench.o -o insert_access

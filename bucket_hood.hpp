@@ -3,13 +3,14 @@
 
 #include <cstdint>
 
+#include <algorithm>
 #include <bit>
+#include <cassert>
 #include <concepts>
-#include <format>
 #include <functional>
-#include <iostream>
 #include <iterator>
-#include <source_location>
+#include <limits>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -43,55 +44,6 @@ BH_ALWAYS_INLINE bool unlikely( long condition ) noexcept { return __builtin_exp
 [[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
 
 /********************************************************************************
- * Custom assertion macro
- *******************************************************************************/
-
-// Leave the possibility open of using this together with my standalone header
-#ifndef SLM_CHECK_REQUIRE_HPP
-
-inline BH_NEVER_INLINE void simple_fail( const char* condition_text,
-                                         const std::source_location& loc ) noexcept {
-    std::format_to( std::ostreambuf_iterator( std::cerr ), "Assertion error in {:s}:{:d}:{:s}: {:s}\n",
-                    loc.file_name(), loc.line(), loc.function_name(), condition_text );
-    std::abort();
-}
-
-template < class... Args >
-BH_NEVER_INLINE void fail_with_message( const char* condition_text, const std::source_location& loc,
-                                        const char* msg_format, Args&&... args ) noexcept {
-    auto msg = std::vformat( msg_format, std::make_format_args( args... ) );
-    std::format_to( std::ostreambuf_iterator( std::cerr ),
-                    "Assertion error in {:s}:{:d}:{:s}: {:s}; message: {:s}\n", loc.file_name(), loc.line(),
-                    loc.function_name(), condition_text, msg );
-    std::abort();
-}
-
-template < class... Args >
-BH_ALWAYS_INLINE constexpr void check( bool condition, const char* condition_text,
-                                       const std::source_location& loc, Args&&... args ) {
-    if ( std::is_constant_evaluated() && !condition ) {
-        *(volatile int*)nullptr = 0;
-    } else if ( !condition ) [[unlikely]] {
-        if constexpr ( sizeof...( Args ) == 0 ) {
-            simple_fail( condition_text, loc );
-        } else {
-            fail_with_message( condition_text, loc, std::forward< Args >( args )... );
-        }
-    }
-}
-
-#define REQUIRE( condition, ... )                                                                              \
-    check( condition, #condition, std::source_location::current() __VA_OPT__(, ) __VA_ARGS__ );
-
-#ifndef NDEBUG
-#define CHECK( condition, ... ) REQUIRE( condition __VA_OPT__(, ) __VA_ARGS__ )
-#else
-#define CHECK( condition, ... )
-#endif
-
-#endif // SLM_CHECK_REQUIRE_HPP
-
-/********************************************************************************
  * Safely multiply two size_types; protect against overflow.
  * Probably not a concern for 64-bit size_type but for the 32-bit default it can
  * definitely realistically happen.
@@ -102,7 +54,7 @@ BH_ALWAYS_INLINE size_type bounds_checked_mul( size_type a, size_type b ) {
         uint64_t a_ = a;
         uint64_t b_ = b;
         uint64_t c = a_ * b_;
-        REQUIRE( c <= std::numeric_limits< size_type >::max(), "Overflowed 32-bit size_type" );
+        assert( c <= std::numeric_limits< size_type >::max() && "Overflowed 32-bit size_type" );
         return c;
     } else {
         // Currently not doing any check for 64-bit. Surely you would exhaust memory first.
@@ -406,32 +358,32 @@ class Optional {
     }
 
     constexpr const T* operator->() const noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return &m_payload;
     }
 
     constexpr T* operator->() noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return &m_payload;
     }
 
     constexpr const T& operator*() const& noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return m_payload;
     }
 
     constexpr T& operator*() & noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return m_payload;
     }
 
     constexpr const T&& operator*() const&& noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return static_cast< const T&& >( m_payload );
     }
 
     constexpr T&& operator*() && noexcept {
-        CHECK( m_engaged, "dereferencing disengaged Optional" );
+        assert( m_engaged && "dereferencing disengaged Optional" );
         return static_cast< T&& >( m_payload );
     }
 
@@ -440,22 +392,30 @@ class Optional {
     constexpr bool has_value() const noexcept { return m_engaged; }
 
     constexpr const T& value() const& noexcept {
-        REQUIRE( m_engaged, "dereferencing disengaged Optional" );
+        if ( !m_engaged ) {
+            std::abort();
+        }
         return m_payload;
     }
 
     constexpr T& value() & noexcept {
-        REQUIRE( m_engaged, "dereferencing disengaged Optional" );
+        if ( !m_engaged ) {
+            std::abort();
+        }
         return m_payload;
     }
 
     constexpr T&& value() && noexcept {
-        REQUIRE( m_engaged, "dereferencing disengaged Optional" );
+        if ( !m_engaged ) {
+            std::abort();
+        }
         return static_cast< T&& >( m_payload );
     }
 
     constexpr const T&& value() const&& noexcept {
-        REQUIRE( m_engaged, "dereferencing disengaged Optional" );
+        if ( !m_engaged ) {
+            std::abort();
+        }
         return static_cast< const T&& >( m_payload );
     }
 
@@ -665,12 +625,12 @@ class Optional< T& > {
     }
 
     constexpr T& operator*() const noexcept {
-        CHECK( m_ptr, "Disengaged optional access" );
+        assert( m_ptr && "Disengaged optional access" );
         return *m_ptr;
     }
 
     constexpr T* operator->() const noexcept {
-        CHECK( m_ptr, "Disengaged optional access" );
+        assert( m_ptr && "Disengaged optional access" );
         return m_ptr;
     }
 
@@ -679,7 +639,7 @@ class Optional< T& > {
     constexpr bool has_value() const noexcept { return (bool)*this; }
 
     constexpr T& value() const noexcept {
-        REQUIRE( m_ptr, "Disengaged optional access" );
+        assert( m_ptr && "Disengaged optional access" );
         return *m_ptr;
     }
 
@@ -853,20 +813,36 @@ struct SetIterator {
     SetIterator() noexcept = default;
 
     explicit SetIterator( const Bucket* bucket ) noexcept
+    requires is_const
         : m_bucket{ bucket }, m_slot_index{ std::numeric_limits< mask_type >::digits } {
-        CHECK( m_bucket->is_sentinel() );
+        assert( m_bucket->is_sentinel() );
+    }
+
+    explicit SetIterator( Bucket* bucket )
+        : m_bucket{ bucket }, m_slot_index{ std::numeric_limits< mask_type >::digits } {
+        assert( m_bucket->is_sentinel() );
     }
 
     explicit SetIterator( const Bucket* bucket, int slot_index ) noexcept
+    requires is_const
         : m_bucket{ bucket }, m_slot_index{ slot_index } {
-        CHECK( m_bucket );
+        assert( m_bucket );
         m_bucket_mask = m_bucket->occupied_mask();
-        CHECK( m_bucket_mask & ( mask_type( 1 ) << slot_index ) );
+        assert( m_bucket_mask & ( mask_type( 1 ) << slot_index ) );
         m_bucket_mask &= ( ~mask_type( 0 ) << m_slot_index );
     }
 
-    explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
-        CHECK( m_bucket );
+    explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept
+    requires is_const
+        : m_bucket{ bucket } {
+        assert( m_bucket );
+        m_bucket_mask = m_bucket->occupied_mask();
+        m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
+        scan_to_slot();
+    }
+
+    explicit SetIterator( Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
+        assert( m_bucket );
         m_bucket_mask = m_bucket->occupied_mask();
         m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
         scan_to_slot();
@@ -893,7 +869,7 @@ struct SetIterator {
         return !( *this == other );
     }
 
-    reference operator*() const noexcept { return m_bucket->slots[ m_slot_index ].get(); }
+    reference operator*() const noexcept { return m_bucket->get( m_slot_index ); }
     pointer operator->() const noexcept { return &reference(); }
 
   private:
@@ -919,14 +895,11 @@ struct is_transparent_hash : std::false_type {};
 template < class Comparison, class K >
 struct is_transparent_comparison : std::false_type {};
 
-template < class Traits, class K >
+template < class K, class Traits >
 concept transparent_key =
     std::disjunction_v< std::is_same< std::remove_cvref_t< K >, typename Traits::key_type >,
                         std::conjunction< is_transparent_hash< typename Traits::hash_type, K >,
                                           is_transparent_comparison< typename Traits::comparison_type, K > > >;
-
-// Passed to bucket copy constructors to ensure that accidental copies can't be made.
-struct CopyTag {};
 
 template < class Traits >
 class HashSetBase {
@@ -936,9 +909,19 @@ class HashSetBase {
     typedef Traits::key_type key_type;
     typedef Traits::value_type value_type;
 
+    struct Location {
+        bucket_type* bucket;
+        int slot;
+        int probe_length;
+
+        BH_ALWAYS_INLINE bool new_insertion() const {
+            return !bucket || ( slot < 0 || !bucket->occupied( slot ) );
+        }
+    };
+
     static_assert( std::is_trivially_destructible_v< bucket_type > );
 
-    static constexpr bucket_type end_sentinel = bucket_type::end_sentinel();
+    static inline bucket_type end_sentinel = bucket_type::end_sentinel();
     bucket_type* m_buckets{ &end_sentinel };
     // bitwise and with m_bitmask gives us bucket index.
     size_type m_bitmask{ 0 };
@@ -947,27 +930,35 @@ class HashSetBase {
     float m_max_load_factor{ bucket_type::default_load_factor };
     [[no_unique_address]] Traits m_traits;
 
-    void evict( bucket_type* bucket ) {
+    int evict( bucket_type* bucket ) {
+        bucket_type* original_bucket = bucket;
         int slot = bucket->min_probe_length_slot();
-        auto [ evicted, hash_bits, probe_len ] = bucket->extract( slot );
+        int original_slot = slot;
+        auto [ evicted, hash_bits, probe_len ] = bucket->extract( slot, m_traits );
 
-        size_type bucket_index = bucket - m_buckets;
-        do {
-            bucket_index++;
-            probe_len++;
-            bucket_index &= m_bitmask;
+        size_type bucket_index = bucket - m_buckets + 1;
+        bucket_index &= m_bitmask;
+        probe_len++;
+        while ( likely( probe_len ) ) {
             bucket = m_buckets + bucket_index;
-
             auto empty_mask = bucket->empty_slots();
             if ( empty_mask ) {
                 slot = std::countr_zero( empty_mask );
-                bucket->emplace( slot, std::move( evicted ), hash_bits, probe_len );
-                return;
+                bucket->emplace( slot, std::move( evicted ), hash_bits, probe_len, m_traits );
+                return original_slot;
             } else if ( bucket->all_probe_lengths_shorter_than( probe_len ) ) {
                 slot = bucket->min_probe_length_slot();
                 bucket->swap( slot, evicted, hash_bits, probe_len );
             }
-        } while ( true );
+
+            bucket_index = ( bucket_index + 1 ) & m_bitmask;
+            probe_len++;
+        }
+
+        // Failed due to overflowed probe length. Reinsert the removed item, and return a negative
+        // slot number to signal failure. Caller is responsible for rehashing.
+        original_bucket->emplace( original_slot, std::move( evicted ), hash_bits, probe_len, m_traits );
+        return -1;
     }
 
     BH_ALWAYS_INLINE void destroy_entries() {
@@ -976,6 +967,21 @@ class HashSetBase {
                 m_traits.destroy_at( m_buckets + i );
             }
         }
+    }
+
+    BH_ALWAYS_INLINE void rehash_insert( element_type&& element ) {
+        const auto& key = Traits::get_key( element );
+        size_type hash_val = hash( key );
+        auto location = locate( key, hash_val );
+        assert( location.new_insertion() );
+        assert( location.bucket );
+        emplace_at( location, std::move( element ), hash_val );
+    }
+
+    BH_ALWAYS_INLINE void unchecked_emplace( const Location& where, auto&& val, size_type hash_val ) {
+        where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val, where.probe_length,
+                               m_traits );
+        m_occupied++;
     }
 
   protected:
@@ -992,7 +998,7 @@ class HashSetBase {
     HashSetBase& operator=( HashSetBase&& other ) {
         destroy_entries();
         if ( m_bitmask ) {
-            m_traits.deallocate( m_buckets );
+            m_traits.deallocate( m_buckets, num_buckets() + 1 );
         }
 
         m_buckets = other.m_buckets;
@@ -1012,9 +1018,9 @@ class HashSetBase {
         if ( !m_bitmask ) {
             return;
         }
-        m_buckets = m_traits.allocate( num_buckets() );
+        m_buckets = m_traits.allocate( num_buckets() + 1 );
         for ( size_type i = 0; i < num_buckets(); ++i ) {
-            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], CopyTag{} );
+            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
     }
 
@@ -1032,17 +1038,18 @@ class HashSetBase {
         m_rehash = other.m_rehash;
         m_max_load_factor = other.m_max_load_factor;
         if ( m_bitmask != other.m_bitmask ) {
-            m_traits.deallocate( m_buckets );
+            m_traits.deallocate( m_buckets, num_buckets() + 1 );
             m_bitmask = other.m_bitmask;
             m_traits = other.m_traits;
-            m_buckets = m_traits.allocate( num_buckets() );
+            m_buckets = m_traits.allocate( num_buckets() + 1 );
+            m_buckets[ num_buckets() ] = end_sentinel;
         } else {
             m_traits = other.m_traits;
         }
 
         for ( size_type i = 0; i < num_buckets(); ++i ) {
             // Ok because I've static asserted that buckets are trivially destructible.
-            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], CopyTag{} );
+            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
 
         return *this;
@@ -1063,40 +1070,30 @@ class HashSetBase {
     ~HashSetBase() {
         destroy_entries();
         if ( m_bitmask ) {
-            m_traits.deallocate( m_buckets );
+            m_traits.deallocate( m_buckets, num_buckets() + 1 );
         }
     }
 
     static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
 
-    struct Location {
-        bucket_type* bucket;
-        int slot;
-        int probe_length;
-
-        BH_ALWAYS_INLINE bool new_insertion() const {
-            return !bucket || ( slot < 0 || !bucket->occupied( slot ) );
-        }
-    };
-
     BH_ALWAYS_INLINE bool should_rehash() const { return m_occupied + 1 >= m_rehash; }
 
     BH_ALWAYS_INLINE size_type num_buckets() const { return size_type( 1 ) << std::countr_one( m_bitmask ); }
-    BH_ALWAYS_INLINE size_type num_slots() const {
-        return bounds_checked_mul( num_buckets() * bucket_type::num_slots );
-    }
 
     BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
         return static_cast< size_type >( m_traits.hash( key ) );
     }
 
-    BH_ALWAYS_INLINE void unchecked_emplace( const Location& where, auto&& val, size_type hash_val ) {
-        if ( unlikely( where.slot < 0 ) ) {
-            evict( where.bucket );
+    BH_ALWAYS_INLINE void emplace_at( Location where, auto&& val, size_type hash_val ) {
+        while ( unlikely( where.slot < 0 ) ) {
+            int evicted_slot = evict( where.bucket );
+            where.slot = evicted_slot;
+            if ( unlikely( evicted_slot < 0 ) ) {
+                rehash( 0 );
+                where = locate( val, hash_val );
+            }
         }
-        where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val,
-                               where.probe_length );
-        m_occupied++;
+        unchecked_emplace( where, std::forward< decltype( val ) >( val ), hash_val );
     }
 
     /*
@@ -1154,17 +1151,18 @@ class HashSetBase {
     }
 
     void set_max_load_factor( float lf ) {
-        REQUIRE( lf > 0 && lf < 1, "Max load factor must be in (0, 1); provided: {:f}", lf );
+        assert( lf > 0 && lf < 1 && "Max load factor must be in (0, 1)" );
         m_max_load_factor = lf;
-        m_rehash = num_slots() * m_max_load_factor;
+        m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
     }
 
     void rehash( size_type sz ) {
-        size_type current_num_buckets = num_slots();
+        size_type current_num_buckets = num_buckets();
         size_type new_num_buckets;
         if ( sz ) {
-            float new_num_buckets_ = sz / m_max_load_factor;
-            REQUIRE( new_num_buckets_ < static_cast< float >( max_num_buckets ), "Overflowed size_type" );
+            float new_num_buckets_ = ( sz / m_max_load_factor ) / bucket_type::num_slots;
+            assert( new_num_buckets_ * bucket_type::num_slots < static_cast< float >( max_num_buckets ) &&
+                    "Overflowed size_type" );
             new_num_buckets = static_cast< size_type >( new_num_buckets_ );
             new_num_buckets = std::bit_ceil( new_num_buckets );
         } else {
@@ -1176,18 +1174,18 @@ class HashSetBase {
         std::swap( new_buckets, m_buckets );
         m_bitmask = ( m_bitmask << 1 ) | 1;
         m_occupied = 0;
-        m_rehash = m_max_load_factor * num_slots();
+        m_rehash = m_max_load_factor * new_num_buckets * bucket_type::num_slots;
 
         if ( current_num_buckets > 1 ) {
             SetIterator< bucket_type, false > it{ new_buckets, 0, EmptySlotTag{} };
             SetIterator< bucket_type, false > end_( new_buckets + current_num_buckets );
             while ( it != end_ ) {
-                insert( std::move( *it ) );
+                rehash_insert( std::move( *it ) );
                 ++it;
             }
         }
 
-        m_traits.deallocate( new_buckets );
+        m_traits.deallocate( new_buckets, current_num_buckets + 1 );
     }
 };
 
@@ -1196,63 +1194,85 @@ struct DebugBucket {
     typedef T value_type;
     typedef unsigned mask_type;
     static constexpr size_type num_slots = 8;
+    static constexpr float default_load_factor = 0.9;
 
     uint8_t hash_bits[ 8 ]{ 0 };
     uint8_t probe_lengths[ 8 ]{ 0 };
 
+    struct {
+        alignas( T ) std::byte storage[ sizeof( T ) ];
+    } slots[ 8 ];
+
     bool is_sentinel() const {
         uint64_t bitmask = std::bit_cast< uint64_t >( hash_bits );
-        return bitmask != 0 && ( bitmask & 0x0101010101010101ul ) == 0;
+        return bitmask == 0x7f7f7f7f7f7f7f7fUL;
     }
 
-    static consteval DebugBucket end_sentinel() {
-        return { .hash_bits = { 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf0 },
-                 .probe_lengths = { 0 },
-                 .slots = {} };
+    constexpr DebugBucket() = default;
+
+    DebugBucket( const DebugBucket& other, auto&& traits ) {
+        assert( empty_slots() == 0xff );
+        std::ranges::copy( other.hash_bits, std::begin( hash_bits ) );
+        std::ranges::copy( other.probe_lengths, std::begin( probe_lengths ) );
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( hash_bits[ slot ] ) {
+                traits.construct_at( &get( slot ), other.get( slot ) );
+            }
+        }
+    }
+
+    constexpr static DebugBucket end_sentinel() {
+        DebugBucket result;
+        std::ranges::fill( result.hash_bits, 0x7f );
+        return result;
     }
 
     bool occupied( int slot ) const {
-        REQUIRE( slot < 8 );
-        return hash_bits[ slot ];
+        assert( slot < 8 );
+        return hash_bits[ slot ] > 0x80;
     }
 
     T& get( int slot ) {
-        REQUIRE( occupied( slot ) );
-        return slots[ slot ].payload;
+        assert( occupied( slot ) );
+        return *std::launder( reinterpret_cast< T* >( slots[ slot ].storage ) );
     }
 
     const T& get( int slot ) const {
-        REQUIRE( occupied( slot ) );
-        return slots[ slot ].payload;
+        assert( occupied( slot ) );
+        return *std::launder( reinterpret_cast< const T* >( slots[ slot ].storage ) );
     }
 
     void emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
-        REQUIRE( !occupied( slot ) && probe_length < 256 );
-        traits.construct_at( &slots[ slot ].payload, std::forward< decltype( val ) >( val ) );
+        assert( !occupied( slot ) && probe_length < 256 );
+        traits.construct_at( &get( slot ), std::forward< decltype( val ) >( val ) );
         hash_bits[ slot ] = ( hash_val & 0xff ) | 1;
         probe_lengths[ slot ] = probe_length;
     }
 
-    void swap( int slot, T& x, uint8_t& hash_bits, int& probe_len ) {
+    void swap( int slot, T& x, uint8_t& hash_bits, uint8_t& probe_len ) {
         using std::swap;
-        REQUIRE( hash_bits & 1 );
+        assert( hash_bits & 1 );
         swap( get( slot ), x );
         swap( this->hash_bits[ slot ], hash_bits );
-        swap( probe_lengths[ slot ], probe_len );
+        uint8_t tmp = probe_len;
+        probe_len = probe_lengths[ slot ];
+        probe_lengths[ slot ] = tmp;
     }
 
     auto extract( int slot, auto& traits ) {
-        REQUIRE( slot >= 0 && slot < 8 );
+        assert( slot >= 0 && slot < 8 );
         auto out = std::make_tuple( std::move( get( slot ) ), hash_bits[ slot ], probe_lengths[ slot ] );
-        traits.destroy_at( &slots[ slot ].payload );
-        // I believe we don't need to reset hash_bits or probe_lengths because we know we will unconditionally
-        // assign to this slot.
+        traits.destroy_at( &get( slot ) );
+        // Reset hash_bits, too, in case a rehash is needed.
+        hash_bits[ slot ] = 0;
         return out;
     }
 
     static uint8_t get_check_bits( size_type hash_val ) {
         return ( hash_val >> ( std::numeric_limits< size_type >::digits - 8 ) ) | 1;
     }
+
+    mask_type occupied_mask() const { return ~empty_slots(); }
 
     mask_type matching_slots( uint8_t check_bits ) const {
         mask_type out = 0;
@@ -1292,18 +1312,9 @@ struct DebugBucket {
                 min_slot = slot;
             }
         }
-        REQUIRE( min_slot >= 0 && min_slot < 8 );
+        assert( min_slot >= 0 && min_slot < 8 );
         return min_slot;
     }
-
-    union Slot {
-        char dummy;
-        T payload;
-
-        Slot() : dummy() {}
-    };
-
-    Slot slots[ 8 ];
 };
 
 template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
@@ -1318,8 +1329,10 @@ class TraitsForSet {
     typedef Bucket< T > bucket_type;
     typedef selected_hash< Hash > hash_type;
     typedef Compare comparison_type;
-    typedef std::allocator_traits< Allocator >::template rebind_traits< bucket_type > bucket_allocator_traits;
-    typedef std::allocator_traits< Allocator >::template rebind_traits< value_type > value_allocator_traits;
+    typedef std::allocator_traits< Allocator >::template rebind_alloc< bucket_type > bucket_allocator;
+    typedef std::allocator_traits< Allocator >::template rebind_alloc< value_type > value_allocator;
+
+    static const key_type& get_key( const key_type& key ) { return key; }
 
     TraitsForSet() = default;
     TraitsForSet( const Allocator& alloc ) : m_allocator{ alloc } {}
@@ -1360,25 +1373,36 @@ class TraitsForSet {
     auto hash( auto&& key ) const { return m_hash( key ); }
     bool compare( auto&& k1, auto&& k2 ) const { return m_comparison( k1, k2 ); }
 
-    // Note: _does_ construct the buckets in the returned memory, unlike allocator::allocate.
-    bucket_type* allocate( size_type n ) { return bucket_allocator_traits::allocate( m_allocator, n ); }
-    void deallocate( bucket_type* mem ) { bucket_allocator_traits::deallocate( m_allocator, mem ); }
+    bucket_type* allocate( size_type n ) {
+        bucket_allocator alloc( m_allocator );
+        return std::allocator_traits< bucket_allocator >::allocate( alloc, n );
+    }
+
+    void deallocate( bucket_type* mem, size_type n ) {
+        bucket_allocator alloc( m_allocator );
+        std::allocator_traits< bucket_allocator >::deallocate( alloc, mem, n );
+    }
 
     BH_ALWAYS_INLINE void construct_at( value_type* where, auto&&... args ) {
-        value_allocator_traits::construct( m_allocator, where, std::forward< decltype( args ) >( args )... );
+        value_allocator alloc( m_allocator );
+        std::allocator_traits< value_allocator >::construct( m_allocator, where,
+                                                             std::forward< decltype( args ) >( args )... );
     }
 
     BH_ALWAYS_INLINE void destroy_at( value_type* where ) {
-        value_allocator_traits::destroy( m_allocator, where );
+        value_allocator alloc( m_allocator );
+        std::allocator_traits< value_allocator >::destroy( alloc, where );
     }
 
-    BH_ALWAYS_INLINE void construct_at( bucket_type* where ) {
-        bucket_allocator_traits::construct( m_allocator, where );
+    template < class... Args >
+    BH_ALWAYS_INLINE void construct_at( bucket_type* where, Args&&... args ) {
+        bucket_allocator alloc( m_allocator );
+        std::allocator_traits< bucket_allocator >::construct( alloc, where, std::forward< Args >( args )... );
     }
 
     BH_ALWAYS_INLINE void destroy_at( bucket_type* where ) {
         using mask_type = typename bucket_type::mask_type;
-        mask_type occupied_mask = where->occupied_mask;
+        mask_type occupied_mask = where->occupied_mask();
         while ( occupied_mask ) {
             int occupied_slot = std::countr_one( occupied_mask );
             occupied_mask ^= mask_type( 1 ) << occupied_slot;
@@ -1414,22 +1438,23 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
             return false;
         }
 
-        while ( this->should_rehash() || unlikely( !location.bucket ) ) {
-            this->rehash();
+        while ( unlikely( this->should_rehash() || !location.bucket ) ) {
+            this->rehash( 0 );
             location = this->locate( key, hash_val );
         }
 
-        this->unchecked_emplace( location, std::forward< K >( key ), hash_val );
+        this->emplace_at( location, std::forward< K >( key ), hash_val );
+        return true;
     }
 
     template < class... Args >
     bool emplace( Args&&... args ) {
-        emplace( Key( std::forward< Args >( args )... ) );
+        return emplace( Key( std::forward< Args >( args )... ) );
     }
 
     template < transparent_key< Traits > K >
     bool insert( K&& key ) {
-        emplace( std::forward< K >( key ) );
+        return emplace( std::forward< K >( key ) );
     }
 };
 

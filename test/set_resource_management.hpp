@@ -1,7 +1,8 @@
 #ifndef SET_RESOURCE_MANAGEMENT_HPP
 #define SET_RESOURCE_MANAGEMENT_HPP
 
-#include "../bucket_hood/unordered_set.hpp"
+#include "../bucket_hood.hpp"
+
 #include "doctest.h"
 #include "test_utils.hpp"
 
@@ -45,4 +46,3 @@ TEST_CASE( "[RESOURCE] [TRIVIAL] Copy construct a small set" ) {
 } // TEST_CASE
 
 #endif // SET_RESOURCE_MANAGEMENT_HPP
-
