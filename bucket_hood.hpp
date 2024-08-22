@@ -1228,7 +1228,7 @@ struct DebugBucket {
 
     bool occupied( int slot ) const {
         assert( slot < 8 );
-        return hash_bits[ slot ] > 0x80;
+        return hash_bits[ slot ] >= 0x80;
     }
 
     T& get( int slot ) { return *std::launder( reinterpret_cast< T* >( slots[ slot ].storage ) ); }
@@ -1241,13 +1241,13 @@ struct DebugBucket {
     void emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
         assert( !occupied( slot ) && probe_length < 256 );
         traits.construct_at( &get( slot ), std::forward< decltype( val ) >( val ) );
-        hash_bits[ slot ] = ( hash_val & 0xff ) | 1;
+        hash_bits[ slot ] = get_check_bits( hash_val );
         probe_lengths[ slot ] = probe_length;
     }
 
     void swap( int slot, T& x, uint8_t& hash_bits, uint8_t& probe_len ) {
         using std::swap;
-        assert( hash_bits & 1 );
+        assert( hash_bits & 0x80 );
         swap( get( slot ), x );
         swap( this->hash_bits[ slot ], hash_bits );
         uint8_t tmp = probe_len;
@@ -1264,9 +1264,7 @@ struct DebugBucket {
         return out;
     }
 
-    static uint8_t get_check_bits( size_type hash_val ) {
-        return ( hash_val >> ( std::numeric_limits< size_type >::digits - 8 ) ) | 1;
-    }
+    static uint8_t get_check_bits( size_type hash_val ) { return ( hash_val & 0xff ) | 0x80; }
 
     mask_type occupied_mask() const { return ~empty_slots(); }
 
