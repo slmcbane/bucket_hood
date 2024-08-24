@@ -812,33 +812,17 @@ struct SetIterator {
 
     SetIterator() noexcept = default;
 
-    explicit SetIterator( const Bucket* bucket ) noexcept
-    requires is_const
-        : m_bucket{ bucket }, m_slot_index{ std::numeric_limits< mask_type >::digits } {
-        assert( m_bucket->is_sentinel() );
-    }
-
     explicit SetIterator( Bucket* bucket )
         : m_bucket{ bucket }, m_slot_index{ std::numeric_limits< mask_type >::digits } {
         assert( m_bucket->is_sentinel() );
     }
 
-    explicit SetIterator( const Bucket* bucket, int slot_index ) noexcept
-    requires is_const
+    explicit SetIterator( Bucket* bucket, int slot_index ) noexcept
         : m_bucket{ bucket }, m_slot_index{ slot_index } {
         assert( m_bucket );
         m_bucket_mask = m_bucket->occupied_mask();
         assert( m_bucket_mask & ( mask_type( 1 ) << slot_index ) );
         m_bucket_mask &= ( ~mask_type( 0 ) << m_slot_index );
-    }
-
-    explicit SetIterator( const Bucket* bucket, int slot_index, EmptySlotTag ) noexcept
-    requires is_const
-        : m_bucket{ bucket } {
-        assert( m_bucket );
-        m_bucket_mask = m_bucket->occupied_mask();
-        m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
-        scan_to_slot();
     }
 
     explicit SetIterator( Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
@@ -873,7 +857,10 @@ struct SetIterator {
     pointer operator->() const noexcept { return &reference(); }
 
   private:
-    std::conditional_t< is_const, const Bucket*, Bucket* > m_bucket{ nullptr };
+    template < class >
+    friend class HashSetBase;
+
+    Bucket* m_bucket{ nullptr };
     mask_type m_bucket_mask{ 0 };
     int m_slot_index{ 0 };
 
@@ -1195,6 +1182,16 @@ class HashSetBase {
         return { nullptr, 0, 256 };
     }
 
+    template < bool B >
+    BH_ALWAYS_INLINE static bucket_type* get_bucket( const SetIterator< bucket_type, B >& it ) {
+        return it.m_bucket;
+    }
+
+    template < bool B >
+    BH_ALWAYS_INLINE static int get_slot( const SetIterator< bucket_type, B >& it ) {
+        return it.m_slot_index;
+    }
+
   public:
     size_type size() const { return m_occupied; }
     bool empty() const { return m_occupied == 0; }
@@ -1513,6 +1510,15 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
         return bucket && slot >= 0 && bucket->occupied( slot );
     }
 
+    template < transparent_key< Traits > K >
+    iterator find_iterator( const K& key ) const {
+        auto [ bucket, slot, _ ] = this->locate( key, this->hash( key ) );
+        if ( bucket && slot >= 0 && bucket->occupied( slot ) ) {
+            return iterator( bucket, slot );
+        }
+        return end();
+    }
+
     // For compatibility with std interface, for testing.
     template < transparent_key< Traits > K >
     size_type count( const K& key ) const {
@@ -1555,6 +1561,11 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
         }
         this->erase_at( location.bucket, location.slot );
         return true;
+    }
+
+    iterator erase( iterator it ) {
+        this->erase_at( this->get_bucket( it ), this->get_slot( it ) );
+        return ++it;
     }
 };
 
