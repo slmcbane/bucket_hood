@@ -1026,9 +1026,10 @@ class HashSetBase {
             return;
         }
         m_buckets = m_traits.allocate( num_buckets() + 1 );
-        for ( size_type i = 0; i < num_buckets() + 1; ++i ) {
+        for ( size_type i = 0; i < num_buckets(); ++i ) {
             m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
+        m_traits.construct_at( m_buckets + num_buckets(), EndSentinelTag{} );
     }
 
     HashSetBase& operator=( const HashSetBase& other ) {
@@ -1049,11 +1050,12 @@ class HashSetBase {
             m_bitmask = other.m_bitmask;
             m_traits = other.m_traits;
             m_buckets = m_traits.allocate( num_buckets() + 1 );
+            m_traits.construct_at( m_buckets + num_buckets(), EndSentinelTag{} );
         } else {
             m_traits = other.m_traits;
         }
 
-        for ( size_type i = 0; i < num_buckets() + 1; ++i ) {
+        for ( size_type i = 0; i < num_buckets(); ++i ) {
             // Ok because I've static asserted that buckets are trivially destructible.
             m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
@@ -1403,7 +1405,7 @@ class TraitsForSet {
         using mask_type = typename bucket_type::mask_type;
         mask_type occupied_mask = where->occupied_mask();
         while ( occupied_mask ) {
-            int occupied_slot = std::countr_one( occupied_mask );
+            int occupied_slot = std::countr_zero( occupied_mask );
             occupied_mask ^= mask_type( 1 ) << occupied_slot;
             destroy_at( &where->get( occupied_slot ) );
         }
