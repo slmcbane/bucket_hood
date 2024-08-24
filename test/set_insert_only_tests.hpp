@@ -43,6 +43,17 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
     }
 }
 
+TEST_CASE( "Simplest possible test" ) {
+    bucket_hood::unordered_set< int > my_set;
+    for ( int i = 0; i < 200; ++i ) {
+        bool inserted = my_set.insert( i );
+        REQUIRE_MESSAGE( inserted, i );
+        for ( int j = 0; j < i; ++j ) {
+            REQUIRE_MESSAGE( my_set.contains( j ), "Failed finding ", j );
+        }
+    }
+}
+
 TEST_CASE( "Insert 100 values 1000 times with check after every value" ) {
     xoshiro256ss generator;
 

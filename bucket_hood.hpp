@@ -878,11 +878,15 @@ struct SetIterator {
     int m_slot_index{ 0 };
 
     void scan_to_slot() noexcept {
+        m_slot_index = std::countr_zero( m_bucket_mask );
         while ( !m_bucket_mask && !m_bucket->is_sentinel() ) {
             ++m_bucket;
             m_bucket_mask = m_bucket->occupied_mask();
+            m_slot_index = std::countr_zero( m_bucket_mask );
+            if ( unlikely( m_bucket->is_sentinel() ) ) {
+                return;
+            }
         }
-        m_slot_index = std::countr_zero( m_bucket_mask );
         m_bucket_mask ^= ( mask_type( 1 ) << m_slot_index );
     }
 };
@@ -1105,11 +1109,11 @@ class HashSetBase {
     template < transparent_key< Traits > K >
     BH_ALWAYS_INLINE Location locate( K&& key, size_type hash_val ) const {
         auto bucket_index = hash_val & m_bitmask;
-        bucket_type* bucket = m_buckets + bucket_index;
         int probe_length = 0;
         auto check_bits = bucket_type::get_check_bits( hash_val );
 
         do {
+            bucket_type* bucket = m_buckets + bucket_index;
             auto match_mask = bucket->matching_slots( check_bits );
             while ( match_mask ) {
                 int slot = std::countr_zero( match_mask );
@@ -1130,7 +1134,7 @@ class HashSetBase {
             }
 
             probe_length++;
-            bucket_index++;
+            bucket_index = ( bucket_index + 1 ) & m_bitmask;
         } while ( probe_length < 256 );
 
         return { nullptr, 0, 256 };
@@ -1266,7 +1270,7 @@ struct DebugBucket {
 
     static uint8_t get_check_bits( size_type hash_val ) { return ( hash_val & 0xff ) | 0x80; }
 
-    mask_type occupied_mask() const { return ~empty_slots(); }
+    mask_type occupied_mask() const { return mask_type( 0xff ) & ~empty_slots(); }
 
     mask_type matching_slots( uint8_t check_bits ) const {
         mask_type out = 0;
