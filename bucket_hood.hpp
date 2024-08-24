@@ -1092,6 +1092,24 @@ class HashSetBase {
         return static_cast< size_type >( m_traits.hash( key ) );
     }
 
+    SetIterator< bucket_type, false > begin() {
+        return SetIterator< bucket_type, false >( m_buckets, 0, EmptySlotTag{} );
+    }
+
+    SetIterator< bucket_type, false > end() {
+        return SetIterator< bucket_type, false >( m_buckets == &end_sentinel ? &end_sentinel
+                                                                             : m_buckets + num_buckets() );
+    }
+
+    SetIterator< bucket_type, true > cbegin() const {
+        return SetIterator< bucket_type, true >( m_buckets, 0, EmptySlotTag{} );
+    }
+
+    SetIterator< bucket_type, true > cend() const {
+        return SetIterator< bucket_type, true >( m_buckets == &end_sentinel ? &end_sentinel
+                                                                            : m_buckets + num_buckets() );
+    }
+
     BH_ALWAYS_INLINE void emplace_at( Location where, auto&& val, size_type hash_val ) {
         while ( unlikely( where.slot < 0 ) ) {
             int evicted_slot = evict( where.bucket );
@@ -1477,8 +1495,18 @@ template < class Key, class Hash = std::hash< Key >, class KeyEqual = std::equal
            class Allocator = std::allocator< Key > >
 class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, Allocator, DebugBucket > > {
     typedef TraitsForSet< Key, Hash, KeyEqual, Allocator, DebugBucket > Traits;
+    typedef HashSetBase< Traits > Base;
 
   public:
+    typedef Key value_type;
+    typedef const Key* pointer;
+    typedef const Key& reference;
+    typedef SetIterator< typename Traits::bucket_type, true > iterator;
+    typedef iterator const_iterator;
+
+    iterator begin() const { return Base::cbegin(); }
+    iterator end() const { return Base::cend(); }
+
     template < transparent_key< Traits > K >
     bool contains( const K& key ) const {
         auto [ bucket, slot, _ ] = this->locate( key, this->hash( key ) );
