@@ -972,10 +972,11 @@ class HashSetBase {
         emplace_at( location, std::move( element ), hash_val );
     }
 
-    BH_ALWAYS_INLINE void unchecked_emplace( const Location& where, auto&& val, size_type hash_val ) {
-        where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val, where.probe_length,
-                               m_traits );
+    BH_ALWAYS_INLINE Optional< element_type& > unchecked_emplace( const Location& where, auto&& val,
+                                                                  size_type hash_val ) {
         m_occupied++;
+        return SomeRef( where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val,
+                                               where.probe_length, m_traits ) );
     }
 
   protected:
@@ -1097,7 +1098,7 @@ class HashSetBase {
                                                                             : m_buckets + num_buckets() );
     }
 
-    BH_ALWAYS_INLINE void emplace_at( Location where, auto&& val, size_type hash_val ) {
+    BH_ALWAYS_INLINE Optional< element_type& > emplace_at( Location where, auto&& val, size_type hash_val ) {
         while ( unlikely( where.slot < 0 ) ) {
             int evicted_slot = evict( where.bucket );
             where.slot = evicted_slot;
@@ -1106,7 +1107,7 @@ class HashSetBase {
                 where = locate( val, hash_val );
             }
         }
-        unchecked_emplace( where, std::forward< decltype( val ) >( val ), hash_val );
+        return unchecked_emplace( where, std::forward< decltype( val ) >( val ), hash_val );
     }
 
     BH_ALWAYS_INLINE void erase_at( bucket_type* bucket, size_type slot ) {
@@ -1293,11 +1294,13 @@ struct DebugBucket {
         return *std::launder( reinterpret_cast< const T* >( slots[ slot ].storage ) );
     }
 
-    void emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
+    T& emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
         assert( !occupied( slot ) && probe_length < 256 );
-        traits.construct_at( &get( slot ), std::forward< decltype( val ) >( val ) );
         hash_bits[ slot ] = get_check_bits( hash_val );
         probe_lengths[ slot ] = probe_length;
+        T& result = get( slot );
+        traits.construct_at( &result, std::forward< decltype( val ) >( val ) );
+        return result;
     }
 
     void swap( int slot, T& x, uint8_t& hash_bits, uint8_t& probe_len ) {
@@ -1527,11 +1530,11 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
 
     template < transparent_key< Traits > K >
     requires std::constructible_from< Key, K&& >
-    bool emplace( K&& key ) {
+    Optional< reference > emplace( K&& key ) {
         size_type hash_val = this->hash( key );
         auto location = this->locate( key, hash_val );
         if ( !location.new_insertion() ) {
-            return false;
+            return None;
         }
 
         while ( unlikely( this->should_rehash() || !location.bucket ) ) {
@@ -1539,17 +1542,16 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
             location = this->locate( key, hash_val );
         }
 
-        this->emplace_at( location, std::forward< K >( key ), hash_val );
-        return true;
+        return this->emplace_at( location, std::forward< K >( key ), hash_val );
     }
 
     template < class... Args >
-    bool emplace( Args&&... args ) {
+    Optional< reference > emplace( Args&&... args ) {
         return emplace( Key( std::forward< Args >( args )... ) );
     }
 
     template < transparent_key< Traits > K >
-    bool insert( K&& key ) {
+    Optional< reference > insert( K&& key ) {
         return emplace( std::forward< K >( key ) );
     }
 
