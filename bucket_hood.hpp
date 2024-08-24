@@ -822,7 +822,8 @@ struct SetIterator {
         assert( m_bucket );
         m_bucket_mask = m_bucket->occupied_mask();
         assert( m_bucket_mask & ( mask_type( 1 ) << slot_index ) );
-        m_bucket_mask &= ( ~mask_type( 0 ) << m_slot_index );
+        m_bucket_mask &= ( ~mask_type( 0 ) << slot_index );
+        m_bucket_mask ^= ( mask_type( 1 ) << slot_index );
     }
 
     explicit SetIterator( Bucket* bucket, int slot_index, EmptySlotTag ) noexcept : m_bucket{ bucket } {
