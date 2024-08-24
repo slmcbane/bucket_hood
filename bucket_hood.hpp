@@ -1104,6 +1104,39 @@ class HashSetBase {
         unchecked_emplace( where, std::forward< decltype( val ) >( val ), hash_val );
     }
 
+    BH_ALWAYS_INLINE void erase_at( bucket_type* bucket, size_type slot ) {
+        assert( bucket );
+        size_type bucket_index = bucket - m_buckets;
+        assert( bucket_index < num_buckets() );
+        assert( slot < bucket_type::num_slots );
+        do {
+            mask_type empty_mask = bucket->empty_slots();
+            if ( empty_mask ) {
+                bucket->destroy( slot, m_traits );
+                return;
+            }
+
+            // If this bucket was full we need to check if we can shift backward.
+            bucket_index++;
+            bucket_index &= m_bitmask;
+            bucket_type* next_bucket = m_buckets + bucket_index;
+            auto [ max_slot, max_probe_length ] = next_bucket->max_probe_length_slot();
+
+            // If all probe lengths in next bucket are 0 then we cannot shift backward and we are done
+            if ( max_probe_length == 0 ) {
+                bucket->destroy( slot, m_traits );
+                return;
+            }
+
+            // Actually shift backward.
+            // steal_from should leave the next bucket with bookkeeping data intact so that 'empty_slots'
+            // returns a correct mask.
+            bucket->steal_from( slot, next_bucket, max_slot );
+            bucket = next_bucket;
+            slot = max_slot;
+        } while ( true );
+    }
+
     /*
      * Find an existing key or the location to insert one. Returned is pointer to the bucket,
      * slot index, and the probe length. If we need to evict an entry the returned slot index
@@ -1271,6 +1304,22 @@ struct DebugBucket {
         return out;
     }
 
+    void destroy( int slot, auto& traits ) {
+        assert( occupied( slot ) );
+        traits.destroy_at( &get( slot ) );
+        hash_bits[ slot ] = 0;
+        probe_lengths[ slot ] = 0;
+    }
+
+    void steal_from( int my_slot, DebugBucket* other, int other_slot ) {
+        assert( occupied( my_slot ) );
+        assert( other->occupied( other_slot ) );
+        assert( other->probe_lengths[ other_slot ] > 0 );
+        get( my_slot ) = std::move( other->get( other_slot ) );
+        hash_bits[ my_slot ] = other->hash_bits[ other_slot ];
+        probe_lengths[ my_slot ] = other->probe_lengths[ other_slot ] - 1;
+    }
+
     static uint8_t get_check_bits( size_type hash_val ) { return ( hash_val & 0xff ) | 0x80; }
 
     mask_type occupied_mask() const { return mask_type( 0xff ) & ~empty_slots(); }
@@ -1315,6 +1364,18 @@ struct DebugBucket {
         }
         assert( min_slot >= 0 && min_slot < 8 );
         return min_slot;
+    }
+
+    auto max_probe_length_slot() const {
+        int max = 0;
+        int max_slot = 0;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( probe_lengths[ slot ] > max ) {
+                max = probe_lengths[ slot ];
+                max_slot = slot;
+            }
+        }
+        return std::make_pair( max_slot, max );
     }
 };
 
@@ -1456,6 +1517,16 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
     template < transparent_key< Traits > K >
     bool insert( K&& key ) {
         return emplace( std::forward< K >( key ) );
+    }
+
+    template < transparent_key< Traits > K >
+    bool erase( K&& key ) {
+        auto location = this->locate( key, this->hash( key ) );
+        if ( location.new_insertion() ) {
+            return false;
+        }
+        this->erase_at( location.bucket, location.slot );
+        return true;
     }
 };
 
