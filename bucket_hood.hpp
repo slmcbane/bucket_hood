@@ -905,6 +905,9 @@ concept transparent_key =
                         std::conjunction< is_transparent_hash< typename Traits::hash_type, K >,
                                           is_transparent_comparison< typename Traits::comparison_type, K > > >;
 
+// Construct tag to buckets to indicate we should construct an end sentinel.
+struct EndSentinelTag {};
+
 template < class Traits >
 class HashSetBase {
     typedef Traits::bucket_type bucket_type;
@@ -925,7 +928,7 @@ class HashSetBase {
 
     static_assert( std::is_trivially_destructible_v< bucket_type > );
 
-    static inline bucket_type end_sentinel = bucket_type::end_sentinel();
+    static inline bucket_type end_sentinel = bucket_type( EndSentinelTag{} );
     bucket_type* m_buckets{ &end_sentinel };
     // bitwise and with m_bitmask gives us bucket index.
     size_type m_bitmask{ 0 };
@@ -1175,7 +1178,7 @@ class HashSetBase {
         for ( size_type i = 0; i < new_num_buckets; ++i ) {
             m_traits.construct_at( new_buckets + i );
         }
-        m_traits.construct_at( new_buckets + new_num_buckets, end_sentinel, m_traits );
+        m_traits.construct_at( new_buckets + new_num_buckets, EndSentinelTag{} );
 
         std::swap( new_buckets, m_buckets );
         m_bitmask = ( m_bitmask << 1 ) | 1;
@@ -1226,11 +1229,7 @@ struct DebugBucket {
         }
     }
 
-    constexpr static DebugBucket end_sentinel() {
-        DebugBucket result;
-        std::ranges::fill( result.hash_bits, 0x7f );
-        return result;
-    }
+    DebugBucket( EndSentinelTag ) { std::ranges::fill( hash_bits, 0x7f ); }
 
     bool occupied( int slot ) const {
         assert( slot < 8 );
