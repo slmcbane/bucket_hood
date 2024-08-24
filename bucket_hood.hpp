@@ -1023,7 +1023,7 @@ class HashSetBase {
             return;
         }
         m_buckets = m_traits.allocate( num_buckets() + 1 );
-        for ( size_type i = 0; i < num_buckets(); ++i ) {
+        for ( size_type i = 0; i < num_buckets() + 1; ++i ) {
             m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
     }
@@ -1046,12 +1046,11 @@ class HashSetBase {
             m_bitmask = other.m_bitmask;
             m_traits = other.m_traits;
             m_buckets = m_traits.allocate( num_buckets() + 1 );
-            m_buckets[ num_buckets() ] = end_sentinel;
         } else {
             m_traits = other.m_traits;
         }
 
-        for ( size_type i = 0; i < num_buckets(); ++i ) {
+        for ( size_type i = 0; i < num_buckets() + 1; ++i ) {
             // Ok because I've static asserted that buckets are trivially destructible.
             m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
         }
@@ -1173,7 +1172,10 @@ class HashSetBase {
             new_num_buckets = bounds_checked_mul( current_num_buckets, 2 );
         }
         bucket_type* new_buckets = m_traits.allocate( new_num_buckets + 1 );
-        new_buckets[ new_num_buckets ] = end_sentinel;
+        for ( size_type i = 0; i < new_num_buckets; ++i ) {
+            m_traits.construct_at( new_buckets + i );
+        }
+        m_traits.construct_at( new_buckets + new_num_buckets, end_sentinel, m_traits );
 
         std::swap( new_buckets, m_buckets );
         m_bitmask = ( m_bitmask << 1 ) | 1;
