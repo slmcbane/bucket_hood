@@ -33,7 +33,7 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
     for ( int i = 0; i < count; ++i ) {
         int to_insert = generator();
         bool inserted = ref_set.insert( to_insert ).second;
-        bool binserted = my_set.insert( to_insert );
+        bool binserted = static_cast< bool >( my_set.insert( to_insert ) );
         REQUIRE_MESSAGE( inserted == binserted, "Insertion test failed for x = ", to_insert );
         if ( ( i + 1 ) % granularity == 0 ) {
             for ( int x : ref_set ) {
@@ -46,7 +46,7 @@ void test_insertion( xoshiro256ss& generator, int count, int granularity = 10 ) 
 TEST_CASE( "Simplest possible test" ) {
     bucket_hood::unordered_set< int > my_set;
     for ( int i = 0; i < 200; ++i ) {
-        bool inserted = my_set.insert( i );
+        bool inserted = static_cast< bool >( my_set.insert( i ) );
         REQUIRE_MESSAGE( inserted, i );
         for ( int j = 0; j < i; ++j ) {
             REQUIRE_MESSAGE( my_set.contains( j ), "Failed finding ", j );

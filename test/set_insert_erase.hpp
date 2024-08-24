@@ -1,7 +1,6 @@
 #ifndef SET_INSERT_ERASE_HPP
 #define SET_INSERT_ERASE_HPP
 
-#include "../bucket_hood/unordered_set.hpp"
 #include "doctest.h"
 #include "test_utils.hpp"
 #include "unordered_dense.h"
@@ -27,7 +26,7 @@ void test_insert_erase( xoshiro256ss& generator, int count, float insert_probabi
 
         if ( insert ) {
             bool inserted = ref_set.insert( value ).second;
-            REQUIRE_MESSAGE( inserted == my_set.insert( value ).second,
+            REQUIRE_MESSAGE( inserted == static_cast< bool >( my_set.insert( value ) ),
                              "Insertion test failed for x = ", value );
         } else {
             bool erased = ref_set.erase( value ) == 1;
@@ -49,26 +48,26 @@ void test_insert_erase( xoshiro256ss& generator, int count, float insert_probabi
 
 TEST_CASE( "[INSERT/ERASE] [TRIVIAL] { 1, 2, 3, 4 } \\ { 2, 3 }" ) {
     bucket_hood::unordered_set< int > set;
-    REQUIRE( set.insert( 1 ).second );
-    REQUIRE( set.insert( 2 ).second );
-    REQUIRE( set.insert( 3 ).second );
-    REQUIRE( set.insert( 4 ).second );
+    REQUIRE( set.insert( 1 ) );
+    REQUIRE( set.insert( 2 ) );
+    REQUIRE( set.insert( 3 ) );
+    REQUIRE( set.insert( 4 ) );
 
     REQUIRE( set.erase( 2 ) );
-    REQUIRE( set.find( 1 ) != set.end() );
-    REQUIRE( set.find( 2 ) == set.end() );
-    REQUIRE( set.find( 3 ) != set.end() );
-    REQUIRE( set.find( 4 ) != set.end() );
+    REQUIRE( set.find_iterator( 1 ) != set.end() );
+    REQUIRE( set.find_iterator( 2 ) == set.end() );
+    REQUIRE( set.find_iterator( 3 ) != set.end() );
+    REQUIRE( set.find_iterator( 4 ) != set.end() );
     REQUIRE( set.contains( 1 ) );
     REQUIRE( !set.contains( 2 ) );
     REQUIRE( set.contains( 3 ) );
     REQUIRE( set.contains( 4 ) );
 
     REQUIRE( set.erase( 3 ) );
-    REQUIRE( set.find( 1 ) != set.end() );
-    REQUIRE( set.find( 2 ) == set.end() );
-    REQUIRE( set.find( 3 ) == set.end() );
-    REQUIRE( set.find( 4 ) != set.end() );
+    REQUIRE( set.find_iterator( 1 ) != set.end() );
+    REQUIRE( set.find_iterator( 2 ) == set.end() );
+    REQUIRE( set.find_iterator( 3 ) == set.end() );
+    REQUIRE( set.find_iterator( 4 ) != set.end() );
     REQUIRE( set.contains( 1 ) );
     REQUIRE( !set.contains( 2 ) );
     REQUIRE( !set.contains( 3 ) );
@@ -77,12 +76,12 @@ TEST_CASE( "[INSERT/ERASE] [TRIVIAL] { 1, 2, 3, 4 } \\ { 2, 3 }" ) {
 
 TEST_CASE( "[INSERT/ERASE] [TRIVIAL] Very small case w iterators" ) {
     bucket_hood::unordered_set< int > set;
-    REQUIRE( set.insert( 1 ).second );
-    REQUIRE( set.insert( 2 ).second );
-    REQUIRE( set.insert( 3 ).second );
-    REQUIRE( set.insert( 4 ).second );
+    REQUIRE( set.insert( 1 ) );
+    REQUIRE( set.insert( 2 ) );
+    REQUIRE( set.insert( 3 ) );
+    REQUIRE( set.insert( 4 ) );
 
-    auto it = set.find( 2 );
+    auto it = set.find_iterator( 2 );
     it = set.erase( it );
     REQUIRE( !set.contains( 2 ) );
     std::vector< int > full_set( set.begin(), set.end() );
@@ -90,7 +89,7 @@ TEST_CASE( "[INSERT/ERASE] [TRIVIAL] Very small case w iterators" ) {
     full_set2.insert( full_set2.end(), it, set.end() );
     REQUIRE( full_set == full_set2 );
 
-    it = set.find( 3 );
+    it = set.find_iterator( 3 );
     REQUIRE( it != set.end() );
     it = set.erase( it );
     REQUIRE( !set.contains( 3 ) );
@@ -148,4 +147,3 @@ TEST_CASE( "[INSERT/ERASE] [HUGE] 100'000'000 random 11 insert to 10 erase from 
 }
 
 #endif // SET_INSERT_ERASE_HPP
-
