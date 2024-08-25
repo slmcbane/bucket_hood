@@ -1357,8 +1357,9 @@ using SelectedBucket = BUCKET_HOOD_BUCKET_OVERRIDE;
 
 template < class Key, class Hash = std::hash< Key >, class KeyEqual = std::equal_to< Key >,
            class Allocator = std::allocator< Key > >
-class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, Allocator, SelectedBucket > > {
-    typedef TraitsForSet< Key, Hash, KeyEqual, Allocator, SelectedBucket > Traits;
+class unordered_set
+    : public HashSetBase< TraitsForSet< Key, selected_hash< Hash >, KeyEqual, Allocator, SelectedBucket > > {
+    typedef TraitsForSet< Key, selected_hash< Hash >, KeyEqual, Allocator, SelectedBucket > Traits;
     typedef HashSetBase< Traits > Base;
 
   public:
