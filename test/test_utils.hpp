@@ -37,13 +37,29 @@ struct AllocatorCounters {
     }
 };
 
+class NonTrivialInt {
+    NonTrivialInt() : m_ptr( new uint64_t( 0 ) ) {}
+    NonTrivialInt( NonTrivialInt&& ) = default;
+    NonTrivialInt( const NonTrivialInt& other ) : m_ptr( new uint64_t( static_cast< uint64_t >( other ) ) ) {}
+    NonTrivialInt& operator=( NonTrivialInt&& ) = default;
+    NonTrivialInt& operator=( const NonTrivialInt& other ) {
+        m_ptr.reset( new uint64_t( static_cast< uint64_t >( other ) ) );
+        return *this;
+    }
+
+    operator uint64_t() const { return *m_ptr; }
+
+  private:
+    std::unique_ptr< uint64_t > m_ptr;
+};
+
 // To stress test in testing I want to make containers work hard with a bad hash function.
 // If it's completely trivial though, like mapping all entries to the same bucket, you will
 // just get an infinite loop of rehashing.
 // This is the infamously bad RANDU recurrence relation.
-template < std::integral T >
+template < class T >
 struct BadHash {
-    size_type operator()( T x ) const { return ( x * 65539ul ) & 0xfffffffful; }
+    size_type operator()( T x ) const { return ( (uint64_t)x * 65539ul ) & 0xfffffffful; }
 };
 
 // Specialize known_good to prevent automatic hash mixing being applied.
