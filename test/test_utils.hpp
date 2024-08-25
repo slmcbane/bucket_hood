@@ -2,12 +2,10 @@
 #define BUCKET_HOOD_TEST_UTILS_HPP
 
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 
 #include "../bucket_hood.hpp"
-
-inline uint64_t rotl( uint64_t x, int k ) { return ( x << k ) | ( x >> ( 64 - k ) ); }
+using namespace bucket_hood;
 
 class Splitmix64 {
     explicit Splitmix64( uint64_t state ) : m_state{ state } {}
@@ -22,53 +20,6 @@ class Splitmix64 {
   private:
     uint64_t m_state;
 };
-
-struct NoHash {
-    template < class T >
-    uint32_t operator()( const T& ) const noexcept {
-        return -1;
-    }
-};
-
-struct CountConstructions {
-    int value;
-
-    CountConstructions( int x ) : value{ x } { value_constructed += 1; }
-    CountConstructions( const CountConstructions& other ) : value{ other.value } { copy_constructed += 1; }
-    CountConstructions( CountConstructions&& other ) : value{ other.value } { move_constructed += 1; }
-    ~CountConstructions() { destroyed += 1; }
-    CountConstructions& operator=( CountConstructions&& other ) {
-        value = other.value;
-        return *this;
-    }
-
-    friend bool operator==( const CountConstructions& a, const CountConstructions& b ) {
-        return a.value == b.value;
-    }
-
-    static void reset_counters() {
-        value_constructed = 0;
-        copy_constructed = 0;
-        move_constructed = 0;
-        destroyed = 0;
-    }
-
-    static size_t value_constructed;
-    static size_t copy_constructed;
-    static size_t move_constructed;
-    static size_t destroyed;
-};
-
-namespace std {
-template <>
-struct hash< ::CountConstructions > {
-    size_t operator()( const CountConstructions& a ) const { return std::hash< int >{}( a.value ); }
-};
-
-} // namespace std
-
-// TODO: actually use this in tests.
-struct NotMoveAssignable {};
 
 struct AllocatorCounters {
     inline static size_t allocated = 0;
@@ -280,23 +231,6 @@ class DebugAllocator : private AllocatorCounters {
         }
         p->~T();
     }
-};
-
-class Stopwatch {
-  public:
-    Stopwatch() : m_start( std::chrono::steady_clock::now() ) {}
-
-    template < class Duration >
-    auto elapsed() const {
-        auto now = std::chrono::steady_clock::now();
-        auto duration = now - m_start;
-        return std::chrono::duration_cast< Duration >( duration ).count();
-    }
-
-    void reset() { m_start = std::chrono::steady_clock::now(); }
-
-  private:
-    std::chrono::time_point< std::chrono::steady_clock > m_start;
 };
 
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
