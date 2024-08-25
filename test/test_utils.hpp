@@ -48,6 +48,7 @@ class NonTrivialInt {
     }
 
     operator uint64_t() const { return *m_ptr; }
+    bool operator==( const NonTrivialInt& other ) const { return (uint64_t)( *this ) == (uint64_t)other; }
 
   private:
     std::unique_ptr< uint64_t > m_ptr;
