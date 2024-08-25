@@ -1082,7 +1082,7 @@ class HashSetBase {
     }
 
     SetIterator< bucket_type, false > begin() {
-        return SetIterator< bucket_type, false >( m_buckets, 0, EmptySlotTag{} );
+        return m_bitmask ? SetIterator< bucket_type, false >( m_buckets, 0, EmptySlotTag{} ) : end();
     }
 
     SetIterator< bucket_type, false > end() {
@@ -1091,7 +1091,7 @@ class HashSetBase {
     }
 
     SetIterator< bucket_type, true > cbegin() const {
-        return SetIterator< bucket_type, true >( m_buckets, 0, EmptySlotTag{} );
+        return m_bitmask ? SetIterator< bucket_type, true >( m_buckets, 0, EmptySlotTag{} ) : cend();
     }
 
     SetIterator< bucket_type, true > cend() const {
