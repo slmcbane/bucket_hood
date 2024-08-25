@@ -37,6 +37,19 @@ struct AllocatorCounters {
     }
 };
 
+// To stress test in testing I want to make containers work hard with a bad hash function.
+// If it's completely trivial though, like mapping all entries to the same bucket, you will
+// just get an infinite loop of rehashing.
+// This is the infamously bad RANDU recurrence relation.
+template < std::integral T >
+struct BadHash {
+    size_type operator()( T x ) const { return ( x * 65539ul ) & 0xfffffffful; }
+};
+
+// Specialize known_good to prevent automatic hash mixing being applied.
+template < class T >
+struct bucket_hood::known_good< BadHash< T > > : std::true_type {};
+
 template < class T >
 inline constexpr bool is_debug_bucket = false;
 
