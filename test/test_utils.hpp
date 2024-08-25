@@ -100,25 +100,28 @@ struct hash< ::CountConstructions > {
 struct NotMoveAssignable {};
 
 struct AllocatorCounters {
-    static size_t allocated;
-    static size_t deallocated;
-    static size_t peak;
+    inline static size_t allocated = 0;
+    inline static size_t deallocated = 0;
+    inline static size_t peak = 0;
+    inline static size_t constructed = 0;
+    inline static size_t destroyed = 0;
 
     static void reset() {
         allocated = 0;
         deallocated = 0;
         peak = 0;
+        constructed = 0;
+        destroyed = 0;
     }
 };
+
+template < class T >
+inline constexpr bool is_debug_bucket = false;
 
 template < class T >
 class DebugAllocator : private AllocatorCounters {
   public:
     typedef T value_type;
-    typedef T* pointer;
-    typedef std::size_t size_type;
-    typedef std::ptrdiff_t difference_type;
-    typedef std::true_type propagate_on_container_move_assignment;
     typedef std::true_type is_always_equal;
 
     DebugAllocator() = default;
@@ -129,16 +132,30 @@ class DebugAllocator : private AllocatorCounters {
     template < class U >
     DebugAllocator( const DebugAllocator< U >& ) {}
 
-    T* allocate( size_type n ) {
+    T* allocate( std::size_t n ) {
         allocated += n * sizeof( T );
         size_t diff = allocated - deallocated;
         AllocatorCounters::peak = std::max( diff, AllocatorCounters::peak );
         return new T[ n ];
     }
 
-    void deallocate( T* p, size_type n ) {
+    void deallocate( T* p, std::size_t n ) {
         deallocated += sizeof( T ) * n;
         delete[] p;
+    }
+
+    void construct( T* p, auto&&... args ) {
+        if constexpr ( !is_debug_bucket< T > ) {
+            constructed++;
+        }
+        std::construct_at( p, std::forward< decltype( args ) >( args )... );
+    }
+
+    void destroy( T* p ) {
+        if constexpr ( !is_debug_bucket< T > ) {
+            destroyed++;
+        }
+        p->~T();
     }
 };
 
@@ -160,4 +177,3 @@ class Stopwatch {
 };
 
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
-
