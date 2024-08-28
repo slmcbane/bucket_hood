@@ -11,6 +11,7 @@ struct EndSentinelTag;
 } // namespace bucket_hood
 
 class Splitmix64 {
+  public:
     explicit Splitmix64( uint64_t state ) : m_state{ state } {}
 
     uint64_t operator()() {
