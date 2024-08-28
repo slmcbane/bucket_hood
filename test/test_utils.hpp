@@ -2,10 +2,13 @@
 #define BUCKET_HOOD_TEST_UTILS_HPP
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 
-#include "../bucket_hood.hpp"
-using namespace bucket_hood;
+namespace bucket_hood {
+struct EndSentinelTag;
+} // namespace bucket_hood
 
 class Splitmix64 {
     explicit Splitmix64( uint64_t state ) : m_state{ state } {}
@@ -60,12 +63,8 @@ class NonTrivialInt {
 // This is the infamously bad RANDU recurrence relation.
 template < class T >
 struct BadHash {
-    size_type operator()( T x ) const { return ( (uint64_t)x * 65539ul ) & 0xfffffffful; }
+    uint64_t operator()( T x ) const { return ( (uint64_t)x * 65539ul ) & 0xfffffffful; }
 };
-
-// Specialize known_good to prevent automatic hash mixing being applied.
-template < class T >
-struct bucket_hood::known_good< BadHash< T > > : std::true_type {};
 
 template < class T >
 inline constexpr bool is_debug_bucket = false;
@@ -74,7 +73,7 @@ template < class T >
 struct DebugBucket {
     typedef T value_type;
     typedef unsigned mask_type;
-    static constexpr size_type num_slots = 8;
+    static constexpr uint32_t num_slots = 8;
     static constexpr float default_load_factor = 0.9;
 
     uint8_t hash_bits[ 8 ]{ 0 };
@@ -102,7 +101,7 @@ struct DebugBucket {
         }
     }
 
-    DebugBucket( EndSentinelTag ) { std::ranges::fill( hash_bits, 0x7f ); }
+    DebugBucket( const bucket_hood::EndSentinelTag& ) { std::ranges::fill( hash_bits, 0x7f ); }
 
     bool occupied( int slot ) const {
         assert( slot < 8 );
@@ -116,7 +115,7 @@ struct DebugBucket {
         return *std::launder( reinterpret_cast< const T* >( slots[ slot ].storage ) );
     }
 
-    T& emplace( int slot, auto&& val, size_type hash_val, int probe_length, auto& traits ) {
+    T& emplace( int slot, auto&& val, auto hash_val, int probe_length, auto& traits ) {
         assert( !occupied( slot ) && probe_length < 256 );
         hash_bits[ slot ] = get_check_bits( hash_val );
         probe_lengths[ slot ] = probe_length;
@@ -160,7 +159,7 @@ struct DebugBucket {
         probe_lengths[ my_slot ] = other->probe_lengths[ other_slot ] - 1;
     }
 
-    static uint8_t get_check_bits( size_type hash_val ) { return ( hash_val & 0xff ) | 0x80; }
+    static uint8_t get_check_bits( auto hash_val ) { return ( hash_val & 0xff ) | 0x80; }
 
     mask_type occupied_mask() const { return mask_type( 0xff ) & ~empty_slots(); }
 
@@ -262,5 +261,10 @@ class DebugAllocator : private AllocatorCounters {
         p->~T();
     }
 };
+
+#include "../bucket_hood.hpp"
+// Specialize known_good to prevent automatic hash mixing being applied.
+template < class T >
+struct bucket_hood::known_good< BadHash< T > > : std::true_type {};
 
 #endif // BUCKET_HOOD_TEST_UTILS_HPP

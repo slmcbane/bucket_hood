@@ -1351,7 +1351,8 @@ using SelectedBucket = std::hash< T >;
 
 #else
 
-using SelectedBucket = BUCKET_HOOD_BUCKET_OVERRIDE;
+template < class T >
+using SelectedBucket = BUCKET_HOOD_BUCKET_OVERRIDE< T >;
 
 #endif
 
