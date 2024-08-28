@@ -14,3 +14,11 @@ TEST_CASE( "[small][deterministic] simple deterministic test" ) {
         }
     }
 }
+
+TEST_CASE( "[small][insert-only] check resource management" ) {
+    REQUIRE( AllocatorCounters::allocated );
+    REQUIRE( AllocatorCounters::allocated == AllocatorCounters::deallocated );
+    REQUIRE( AllocatorCounters::constructed );
+    // This one should fail because of trivial destructibility
+    // REQUIRE( AllocatorCounters::constructed == AllocatorCounters::destroyed );
+}
