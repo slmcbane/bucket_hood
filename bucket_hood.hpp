@@ -1116,6 +1116,7 @@ class HashSetBase {
         size_type bucket_index = bucket - m_buckets;
         assert( bucket_index < num_buckets() );
         assert( slot < bucket_type::num_slots );
+        m_occupied--;
         do {
             mask_type empty_mask = bucket->empty_slots();
             if ( empty_mask ) {

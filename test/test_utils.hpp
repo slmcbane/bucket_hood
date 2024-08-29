@@ -268,4 +268,17 @@ class DebugAllocator : private AllocatorCounters {
 template < class T >
 struct bucket_hood::known_good< BadHash< T > > : std::true_type {};
 
+template < class Set1, class Set2 >
+bool compare_sets( const Set1& set1, const Set2& set2 ) {
+    if ( set1.size() != set2.size() ) {
+        return false;
+    }
+    for ( const auto& x : set1 ) {
+        if ( !set2.contains( x ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 #endif // BUCKET_HOOD_TEST_UTILS_HPP
