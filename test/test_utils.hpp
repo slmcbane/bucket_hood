@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
 namespace bucket_hood {
@@ -12,6 +13,8 @@ struct EndSentinelTag;
 
 class Splitmix64 {
   public:
+    typedef uint64_t result_type;
+
     explicit Splitmix64( uint64_t state ) : m_state{ state } {}
 
     uint64_t operator()() {
@@ -20,6 +23,9 @@ class Splitmix64 {
         out = ( out ^ ( out >> 27 ) ) * 0x94D049BB133111EB;
         return out ^ ( out >> 31 );
     }
+
+    static constexpr uint64_t max() { return std::numeric_limits< uint64_t >::max(); }
+    static constexpr uint64_t min() { return 0; }
 
   private:
     uint64_t m_state;

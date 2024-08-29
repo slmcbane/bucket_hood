@@ -36,6 +36,7 @@ void test_insertion( Splitmix64& generator, int count, int granularity ) {
     assert( count > 0 );
 
     bucket_hood::unordered_set< int, BadHash< int >, std::equal_to<>, DebugAllocator< int > > my_set;
+    my_set.set_max_load_factor( 0.99 );
     std::unordered_set< int > ref_set;
 
     REQUIRE( my_set.empty() );
