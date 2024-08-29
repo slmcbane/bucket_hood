@@ -69,6 +69,11 @@ TEST_CASE( "[small][deterministic] Testing random insertions with fixed seed 3" 
     test_insertion( generator, 1000, 1 );
 }
 
+TEST_CASE( "[large] Testing a lot of random insertions with fixed seed" ) {
+    Splitmix64 generator( 0x987654321234567 );
+    test_insertion( generator, 1'000'000, 10'000 );
+}
+
 TEST_CASE( "[small][insert-only] check resource management" ) {
     REQUIRE( AllocatorCounters::allocated );
     REQUIRE( AllocatorCounters::allocated == AllocatorCounters::deallocated );
