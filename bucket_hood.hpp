@@ -1207,7 +1207,7 @@ class HashSetBase {
             m_traits.deallocate( m_buckets );
         }
 
-        m_buckets = &end_sentinel;
+        m_buckets = const_cast< bucket_type* >( &end_sentinel );
         m_occupied = m_bitmask = m_rehash = 0;
     }
 
