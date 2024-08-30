@@ -8,6 +8,7 @@
 #include <cassert>
 #include <concepts>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -1212,10 +1213,15 @@ class HashSetBase {
     void set_max_load_factor( float lf ) {
         assert( lf > 0 && lf < 1 && "Max load factor must be in (0, 1)" );
         m_max_load_factor = lf;
-        m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
+        if ( m_buckets != &end_sentinel ) {
+            m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
+        } else {
+            assert( m_rehash == 0 );
+        }
     }
 
     void rehash( size_type sz ) {
+        std::cerr << "Rehashing with current size " << m_occupied << std::endl;
         size_type current_num_buckets = num_buckets();
         size_type new_num_buckets;
         if ( sz ) {
