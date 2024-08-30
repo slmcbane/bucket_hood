@@ -1214,8 +1214,6 @@ class HashSetBase {
     void set_max_load_factor( float lf ) {
         assert( lf > 0 && lf < 1 && "Max load factor must be in (0, 1)" );
         m_max_load_factor = lf;
-        m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
-        return;
         if ( m_buckets != &end_sentinel ) {
             m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
         } else {
