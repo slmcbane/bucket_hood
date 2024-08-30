@@ -1443,6 +1443,21 @@ class unordered_set
         this->erase_at( this->get_bucket( it ), this->get_slot( it ) );
         return ++it;
     }
+
+    template < class K, class H, class E, class A >
+    bool operator==( const unordered_set< K, H, E, A >& other ) const {
+        if ( this->size() != other.size() ) {
+            return false;
+        }
+
+        for ( const auto& key : *this ) {
+            if ( !other.contains( key ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 };
 
 } // namespace bucket_hood
