@@ -988,7 +988,7 @@ class HashSetBase {
         : m_buckets{ other.m_buckets }, m_bitmask{ other.m_bitmask }, m_occupied{ other.m_occupied },
           m_rehash{ other.m_rehash }, m_max_load_factor{ other.m_max_load_factor },
           m_traits{ std::move( other.m_traits ) } {
-        other.m_buckets = &end_sentinel;
+        other.m_buckets = const_cast< bucket_type* >( &end_sentinel );
         other.m_bitmask = other.m_occupied = other.m_rehash = 0;
     }
 
@@ -1004,7 +1004,7 @@ class HashSetBase {
         m_rehash = other.m_rehash;
         m_max_load_factor = other.m_max_load_factor;
         m_traits = std::move( other.m_traits );
-        other.m_buckets = &end_sentinel;
+        other.m_buckets = const_cast< bucket_type* >( &end_sentinel );
         other.m_bitmask = other.m_occupied = other.m_rehash = 0;
         return *this;
     }
