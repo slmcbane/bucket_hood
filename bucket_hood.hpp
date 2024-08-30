@@ -1445,6 +1445,8 @@ class unordered_set
     }
 
     template < class K, class H, class E, class A >
+    requires transparent_key< K, Traits > &&
+             transparent_key< K, TraitsForSet< K, selected_hash< H >, E, A, SelectedBucket > >
     bool operator==( const unordered_set< K, H, E, A >& other ) const {
         if ( this->size() != other.size() ) {
             return false;
