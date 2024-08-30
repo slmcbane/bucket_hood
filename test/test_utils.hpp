@@ -237,28 +237,28 @@ class DebugAllocator : private AllocatorCounters {
     typedef T value_type;
     typedef std::true_type is_always_equal;
 
-    DebugAllocator() = default;
+    DebugAllocator() : m_allocations{ std::make_shared< std::unordered_map< void*, std::size_t > >() } {};
 
     template < class U >
-    DebugAllocator( DebugAllocator< U >&& ) {}
+    DebugAllocator( DebugAllocator< U >&& other ) : m_allocations{ std::move( other.m_allocations ) } {}
 
     template < class U >
-    DebugAllocator( const DebugAllocator< U >& ) {}
+    DebugAllocator( const DebugAllocator< U >& other ) : m_allocations{ other.m_allocations } {}
 
     T* allocate( std::size_t n ) {
         allocated += n * sizeof( T );
         size_t diff = allocated - deallocated;
         AllocatorCounters::peak = std::max( diff, AllocatorCounters::peak );
         T* out = new T[ n ];
-        m_allocations.insert( { out, n } );
+        m_allocations->insert( { out, n } );
         return out;
     }
 
     void deallocate( T* p, std::size_t n ) {
-        auto it = m_allocations.find( p );
-        REQUIRE( it != m_allocations.end() );
+        auto it = m_allocations->find( p );
+        REQUIRE( it != m_allocations->end() );
         REQUIRE( it->second == n );
-        m_allocations.erase( it );
+        m_allocations->erase( it );
         deallocated += sizeof( T ) * n;
         delete[] p;
     }
@@ -277,8 +277,7 @@ class DebugAllocator : private AllocatorCounters {
         p->~T();
     }
 
-  private:
-    std::unordered_map< void*, std::size_t > m_allocations;
+    std::shared_ptr< std::unordered_map< void*, std::size_t > > m_allocations;
 };
 
 #include "../bucket_hood.hpp"
