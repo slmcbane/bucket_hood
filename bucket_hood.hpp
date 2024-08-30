@@ -1204,7 +1204,7 @@ class HashSetBase {
     void clear() {
         destroy_entries();
         if ( m_bitmask ) {
-            m_traits.deallocate( m_buckets );
+            m_traits.deallocate( m_buckets, num_buckets() + 1 );
         }
 
         m_buckets = const_cast< bucket_type* >( &end_sentinel );
