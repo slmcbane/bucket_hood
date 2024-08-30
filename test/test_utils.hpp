@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <unordered_map>
+
+#include "doctest.h"
 
 namespace bucket_hood {
 struct EndSentinelTag;
@@ -246,10 +249,16 @@ class DebugAllocator : private AllocatorCounters {
         allocated += n * sizeof( T );
         size_t diff = allocated - deallocated;
         AllocatorCounters::peak = std::max( diff, AllocatorCounters::peak );
-        return new T[ n ];
+        T* out = new T[ n ];
+        m_allocations.insert( { out, n } );
+        return out;
     }
 
     void deallocate( T* p, std::size_t n ) {
+        auto it = m_allocations.find( p );
+        REQUIRE( it != m_allocations.end() );
+        REQUIRE( it->second == n );
+        m_allocations.erase( it );
         deallocated += sizeof( T ) * n;
         delete[] p;
     }
@@ -267,6 +276,9 @@ class DebugAllocator : private AllocatorCounters {
         }
         p->~T();
     }
+
+  private:
+    std::unordered_map< void*, std::size_t > m_allocations;
 };
 
 #include "../bucket_hood.hpp"
