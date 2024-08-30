@@ -917,8 +917,8 @@ class HashSetBase {
 
     static_assert( std::is_trivially_destructible_v< bucket_type > );
 
-    static inline bucket_type end_sentinel = bucket_type( EndSentinelTag{} );
-    bucket_type* m_buckets{ &end_sentinel };
+    static inline const bucket_type end_sentinel = bucket_type( EndSentinelTag{} );
+    bucket_type* m_buckets{ const_cast< bucket_type* >( &end_sentinel ) };
     // bitwise and with m_bitmask gives us bucket index.
     size_type m_bitmask{ 0 };
     size_type m_occupied = 0;
@@ -1096,8 +1096,9 @@ class HashSetBase {
     }
 
     SetIterator< bucket_type, true > cend() const {
-        return SetIterator< bucket_type, true >( m_buckets == &end_sentinel ? &end_sentinel
-                                                                            : m_buckets + num_buckets() );
+        return SetIterator< bucket_type, true >( m_buckets == &end_sentinel
+                                                     ? const_cast< bucket_type* >( &end_sentinel )
+                                                     : m_buckets + num_buckets() );
     }
 
     BH_ALWAYS_INLINE Optional< element_type& > emplace_at( Location where, auto&& val, size_type hash_val ) {
@@ -1213,6 +1214,8 @@ class HashSetBase {
     void set_max_load_factor( float lf ) {
         assert( lf > 0 && lf < 1 && "Max load factor must be in (0, 1)" );
         m_max_load_factor = lf;
+        m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
+        return;
         if ( m_buckets != &end_sentinel ) {
             m_rehash = ( num_buckets() * m_max_load_factor ) * bucket_type::num_slots;
         } else {
