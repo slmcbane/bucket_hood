@@ -1036,7 +1036,9 @@ class HashSetBase {
         m_rehash = other.m_rehash;
         m_max_load_factor = other.m_max_load_factor;
         if ( m_bitmask != other.m_bitmask ) {
-            m_traits.deallocate( m_buckets, num_buckets() + 1 );
+            if ( m_bitmask ) {
+                m_traits.deallocate( m_buckets, num_buckets() + 1 );
+            }
             m_bitmask = other.m_bitmask;
             m_traits = other.m_traits;
             m_buckets = m_traits.allocate( num_buckets() + 1 );
