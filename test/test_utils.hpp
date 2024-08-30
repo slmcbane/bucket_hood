@@ -235,7 +235,8 @@ template < class T >
 class DebugAllocator : private AllocatorCounters {
   public:
     typedef T value_type;
-    typedef std::true_type is_always_equal;
+    typedef std::false_type is_always_equal;
+    typedef std::true_type propagate_on_container_move_assignment;
 
     DebugAllocator() : m_allocations{ std::make_shared< std::unordered_map< void*, std::size_t > >() } {};
 
