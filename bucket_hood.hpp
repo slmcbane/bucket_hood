@@ -880,19 +880,21 @@ struct SetIterator {
     }
 };
 
-// To use heterogeneous lookup, specialize these two templates for your hash type and comparison type.
-// If 'transparent_key<Traits, K>' is satisfied then K can be used in place of the real key type.
+// To use heterogeneous lookup, specialize is_transparent_hash for your hash type
+// Comparison is assumed to also be transparent if is_transparent_hash is specialized.
 template < class Hash, class K >
 struct is_transparent_hash : std::false_type {};
 
-template < class Comparison, class K >
-struct is_transparent_comparison : std::false_type {};
+// Broken out this way so that if a concept is not satisfied it's easier to identify the problem.
+template < class Hash, class K >
+concept transparent_hash = is_transparent_hash< Hash, std::remove_cvref_t< K > >::value;
+
+template < class K, class Traits >
+concept same_as_key = std::is_same_v< std::remove_cvref_t< K >, typename Traits::key_type >;
 
 template < class K, class Traits >
 concept transparent_key =
-    std::disjunction_v< std::is_same< std::remove_cvref_t< K >, typename Traits::key_type >,
-                        std::conjunction< is_transparent_hash< typename Traits::hash_type, K >,
-                                          is_transparent_comparison< typename Traits::comparison_type, K > > >;
+    same_as_key< K, Traits > || transparent_hash< typename Traits::original_hash_type, K >;
 
 // Construct tag to buckets to indicate we should construct an end sentinel.
 struct EndSentinelTag {};
@@ -1270,6 +1272,7 @@ class TraitsForSet {
     typedef T value_type;
     typedef Bucket< T > bucket_type;
     typedef selected_hash< Hash > hash_type;
+    typedef Hash original_hash_type;
     typedef Compare comparison_type;
     typedef std::allocator_traits< Allocator >::template rebind_alloc< bucket_type > bucket_allocator;
     typedef std::allocator_traits< Allocator >::template rebind_alloc< value_type > value_allocator;
@@ -1368,9 +1371,8 @@ using SelectedBucket = BUCKET_HOOD_BUCKET_OVERRIDE< T >;
 
 template < class Key, class Hash = std::hash< Key >, class KeyEqual = std::equal_to< Key >,
            class Allocator = std::allocator< Key > >
-class unordered_set
-    : public HashSetBase< TraitsForSet< Key, selected_hash< Hash >, KeyEqual, Allocator, SelectedBucket > > {
-    typedef TraitsForSet< Key, selected_hash< Hash >, KeyEqual, Allocator, SelectedBucket > Traits;
+class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, Allocator, SelectedBucket > > {
+    typedef TraitsForSet< Key, Hash, KeyEqual, Allocator, SelectedBucket > Traits;
     typedef HashSetBase< Traits > Base;
 
   public:
