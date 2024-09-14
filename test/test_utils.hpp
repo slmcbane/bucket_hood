@@ -241,10 +241,15 @@ class DebugAllocator : private AllocatorCounters {
     DebugAllocator() : m_allocations{ std::make_shared< std::unordered_map< void*, std::size_t > >() } {};
 
     template < class U >
-    DebugAllocator( DebugAllocator< U >&& other ) : m_allocations{ std::move( other.m_allocations ) } {}
-
-    template < class U >
+    requires( !std::is_same_v< T, U > )
     DebugAllocator( const DebugAllocator< U >& other ) : m_allocations{ other.m_allocations } {}
+
+    DebugAllocator( const DebugAllocator& ) = default;
+
+    DebugAllocator& operator=( const DebugAllocator& other ) {
+        m_allocations = other.m_allocations;
+        return *this;
+    }
 
     T* allocate( std::size_t n ) {
         allocated += n * sizeof( T );
