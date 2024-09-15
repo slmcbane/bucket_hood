@@ -995,6 +995,9 @@ class HashSetBase {
     }
 
     HashSetBase& operator=( HashSetBase&& other ) {
+        if ( this == &other ) {
+            return *this;
+        }
         destroy_entries();
         if ( m_bitmask ) {
             m_traits.deallocate( m_buckets, num_buckets() + 1 );
@@ -1025,6 +1028,9 @@ class HashSetBase {
     }
 
     HashSetBase& operator=( const HashSetBase& other ) {
+        if ( this == &other ) {
+            return *this;
+        }
         if ( other.empty() ) {
             clear();
             m_max_load_factor = other.m_max_load_factor;
