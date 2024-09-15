@@ -71,8 +71,8 @@ debug_set< T > make_random_set( int count, Splitmix64& generator ) {
 
 TEST_CASE( "[small] test constructors for a standard type" ) {
     Splitmix64 generator( 0x1234567 );
-    debug_set< std::string > my_set;
-    auto set2 = make_random_set< std::string >( 100, generator );
+    debug_set< DebugString > my_set;
+    auto set2 = make_random_set< DebugString >( 100, generator );
     // Copy assign empty from non-empty.
     my_set = set2;
     // Copy construct
