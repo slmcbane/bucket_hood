@@ -856,7 +856,7 @@ struct SetIterator {
     }
 
     reference operator*() const noexcept { return m_bucket->get( m_slot_index ); }
-    pointer operator->() const noexcept { return &reference(); }
+    pointer operator->() const noexcept { return &m_bucket->get( m_slot_index ); }
 
   private:
     template < class >
@@ -1260,6 +1260,7 @@ class HashSetBase {
             SetIterator< bucket_type, false > end_( new_buckets + current_num_buckets );
             while ( it != end_ ) {
                 rehash_insert( std::move( *it ) );
+                it->~element_type();
                 ++it;
             }
             m_traits.deallocate( new_buckets, current_num_buckets + 1 );
