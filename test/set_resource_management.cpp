@@ -128,6 +128,7 @@ TEST_CASE( "[small] Self-assignment" ) {
     debug_set< DebugString > my_set = make_random_set< DebugString >( 100, generator );
     auto set2 = my_set;
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
 #pragma GCC diagnostic ignored "-Wself-assign-overloaded"
     my_set = my_set;
     REQUIRE( my_set == set2 );
