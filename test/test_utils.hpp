@@ -8,8 +8,6 @@
 #include <memory>
 #include <unordered_map>
 
-#include "doctest.h"
-
 namespace bucket_hood {
 struct EndSentinelTag;
 } // namespace bucket_hood
