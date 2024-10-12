@@ -5,7 +5,6 @@
 #include "test_utils.hpp"
 #include <random>
 #include <string>
-#include <unordered_set>
 
 template < class T >
 using debug_set = bucket_hood::unordered_set< T, std::hash< T >, std::equal_to<>, DebugAllocator< T > >;
@@ -128,12 +127,16 @@ TEST_CASE( "[small] Self-assignment" ) {
     Splitmix64 generator( 0x1234567 );
     debug_set< DebugString > my_set = make_random_set< DebugString >( 100, generator );
     auto set2 = my_set;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-assign-overloaded"
     my_set = my_set;
     REQUIRE( my_set == set2 );
+#pragma GCC diagnostic ignored "-Wself-move"
     my_set = std::move( my_set );
     REQUIRE( my_set == set2 );
 
     my_set.clear();
     my_set = my_set;
     REQUIRE( my_set.empty() );
+#pragma GCC diagnostic pop
 }
