@@ -6,3 +6,6 @@ test('Insert and erase tests for set', set_insert_erase, timeout: 90)
 
 set_resource_management = executable('set_resource_management', 'set_resource_management.cpp')
 test('Resource management tests for set', set_resource_management)
+
+set_fuzz = executable('set_fuzz', ['set_fuzz.cpp', 'set_fuzz_driver.cpp'])
+test('Fuzz tests for set with DebugBucket', set_fuzz)
