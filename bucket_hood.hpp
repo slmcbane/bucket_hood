@@ -8,7 +8,6 @@
 #include <cassert>
 #include <concepts>
 #include <functional>
-#include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -1232,7 +1231,6 @@ class HashSetBase {
     }
 
     void rehash( size_type sz ) {
-        std::cerr << "Rehashing with current size " << m_occupied << std::endl;
         size_type current_num_buckets = num_buckets();
         size_type new_num_buckets;
         if ( sz ) {
@@ -1251,8 +1249,8 @@ class HashSetBase {
         m_traits.construct_at( new_buckets + new_num_buckets, EndSentinelTag{} );
 
         std::swap( new_buckets, m_buckets );
-        m_bitmask = ( m_bitmask << 1 ) | 1;
         m_occupied = 0;
+        m_bitmask = ~( ~size_type( 0 ) << std::countr_zero( new_num_buckets ) );
         m_rehash = m_max_load_factor * new_num_buckets * bucket_type::num_slots;
 
         if ( current_num_buckets > 1 ) {
