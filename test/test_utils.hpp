@@ -253,9 +253,9 @@ class DebugAllocator : private AllocatorCounters {
         allocated += n * sizeof( T );
         size_t diff = allocated - deallocated;
         AllocatorCounters::peak = std::max( diff, AllocatorCounters::peak );
-        T* out = new T[ n ];
+        void* out = ::operator new[]( sizeof( T ) * n, std::align_val_t{ alignof( T ) } );
         m_allocations->insert( { out, n } );
-        return out;
+        return reinterpret_cast< T* >( out );
     }
 
     void deallocate( T* p, std::size_t n ) {
@@ -264,7 +264,7 @@ class DebugAllocator : private AllocatorCounters {
         REQUIRE( it->second == n );
         m_allocations->erase( it );
         deallocated += sizeof( T ) * n;
-        delete[] p;
+        ::operator delete[]( p, sizeof( T ) * n, std::align_val_t{ alignof( T ) } );
     }
 
     void construct( T* p, auto&&... args ) {
