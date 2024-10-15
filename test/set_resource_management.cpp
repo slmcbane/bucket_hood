@@ -116,11 +116,23 @@ TEST_CASE( "[small] test constructors for a standard type" ) {
     REQUIRE( set2.empty() );
     REQUIRE( set2 == set6 );
 
+    // Copy assign non-empty to non-empty with same size
+    set2 = set5;
+    REQUIRE( set2 == set5 );
+    set6 = make_random_set< DebugString >( 100, generator );
+    set2 = set6;
+    REQUIRE( set2 == set6 );
+
+    // Copy assign non-empty to non-empty with different size
+    set6 = make_random_set< DebugString >( 300, generator );
+    set2 = set6;
+    REQUIRE( set2 == set6 );
+
     // Move assign empty to non-empty
     REQUIRE( !set5.empty() );
-    set5 = std::move( set2 );
+    set5 = std::move( set4 );
     REQUIRE( set5.empty() );
-    REQUIRE( set5 == set2 );
+    REQUIRE( set5 == set4 );
 }
 
 TEST_CASE( "[small] Self-assignment" ) {
