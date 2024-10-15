@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-static bh_set< long, BadHash< long > > set;
+static bh_set< long, BadHash< long >, std::equal_to<>, DebugAllocator< long > > set;
 static bh_set< long > ref_set;
 
 static_assert( sizeof( unsigned ) == 4 );

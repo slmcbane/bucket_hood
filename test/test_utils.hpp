@@ -260,8 +260,8 @@ class DebugAllocator : private AllocatorCounters {
 
     void deallocate( T* p, std::size_t n ) {
         auto it = m_allocations->find( p );
-        REQUIRE( it != m_allocations->end() );
-        REQUIRE( it->second == n );
+        assert( it != m_allocations->end() );
+        assert( it->second == n );
         m_allocations->erase( it );
         deallocated += sizeof( T ) * n;
         ::operator delete[]( p, sizeof( T ) * n, std::align_val_t{ alignof( T ) } );
