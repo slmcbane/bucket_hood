@@ -1,3 +1,11 @@
+/*
+ * Author: Sean McBane, 2024
+ *
+ * This file and other files except for 'doctest.h' contained in this directory are released into the
+ * public domain using the CC0 waiver, which you can read in CC0.txt or at
+ * https://creativecommons.org/publicdomain/zero/1.0/legalcode.
+ */
+
 #ifndef BUCKET_HOOD_TEST_UTILS_HPP
 #define BUCKET_HOOD_TEST_UTILS_HPP
 
