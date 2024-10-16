@@ -9,3 +9,6 @@ test('Resource management tests for set', set_resource_management)
 
 set_fuzz = executable('set_fuzz', ['set_fuzz.cpp', 'set_fuzz_driver.cpp'])
 test('Fuzz tests for set with DebugBucket', set_fuzz)
+
+set_rehash = executable('set_rehash', 'set_rehash.cpp')
+test('Rehashing tests for set', set_rehash)

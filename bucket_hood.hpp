@@ -1083,9 +1083,7 @@ class HashSetBase {
 
     static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
 
-    BH_ALWAYS_INLINE bool should_rehash() const { return m_occupied + 1 >= m_rehash; }
-
-    BH_ALWAYS_INLINE size_type num_buckets() const { return size_type( 1 ) << std::countr_one( m_bitmask ); }
+    BH_ALWAYS_INLINE bool should_rehash() const { return m_occupied >= m_rehash; }
 
     BH_ALWAYS_INLINE size_type hash( const key_type& key ) const {
         return static_cast< size_type >( m_traits.hash( key ) );
@@ -1208,7 +1206,12 @@ class HashSetBase {
 
   public:
     size_type size() const { return m_occupied; }
+
     bool empty() const { return m_occupied == 0; }
+
+    BH_ALWAYS_INLINE size_type num_buckets() const { return size_type( 1 ) << std::countr_one( m_bitmask ); }
+
+    size_type capacity() const { return m_rehash; }
 
     void clear() {
         destroy_entries();
@@ -1233,12 +1236,17 @@ class HashSetBase {
     void rehash( size_type sz ) {
         size_type current_num_buckets = num_buckets();
         size_type new_num_buckets;
+        double lf = m_max_load_factor;
         if ( sz ) {
-            float new_num_buckets_ = ( sz / m_max_load_factor ) / bucket_type::num_slots;
+            double new_num_buckets_ = ( sz / lf ) / bucket_type::num_slots;
             assert( new_num_buckets_ * bucket_type::num_slots < static_cast< float >( max_num_buckets ) &&
                     "Overflowed size_type" );
-            new_num_buckets = static_cast< size_type >( new_num_buckets_ );
+            new_num_buckets = new_num_buckets_;
             new_num_buckets = std::bit_ceil( new_num_buckets );
+            m_rehash = lf * ( new_num_buckets * bucket_type::num_slots );
+            if ( m_rehash < sz ) {
+                new_num_buckets *= 2;
+            }
         } else {
             new_num_buckets = bounds_checked_mul( current_num_buckets, 2 );
         }
@@ -1251,7 +1259,7 @@ class HashSetBase {
         std::swap( new_buckets, m_buckets );
         m_occupied = 0;
         m_bitmask = ~( ~size_type( 0 ) << std::countr_zero( new_num_buckets ) );
-        m_rehash = m_max_load_factor * new_num_buckets * bucket_type::num_slots;
+        m_rehash = lf * ( new_num_buckets * bucket_type::num_slots );
 
         if ( current_num_buckets > 1 ) {
             SetIterator< bucket_type, false > it{ new_buckets, 0, EmptySlotTag{} };
