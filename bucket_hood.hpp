@@ -1004,8 +1004,6 @@ class HashSetBase {
     }
 
   protected:
-    HashSetBase() = default;
-
     HashSetBase( HashSetBase&& other )
         : m_buckets{ other.m_buckets }, m_bitmask{ other.m_bitmask }, m_occupied{ other.m_occupied },
           m_rehash{ other.m_rehash }, m_max_load_factor{ other.m_max_load_factor },
@@ -1101,13 +1099,6 @@ class HashSetBase {
     }
 
     friend void swap( HashSetBase& a, HashSetBase& b ) { a.swap( b ); }
-
-    ~HashSetBase() {
-        destroy_entries();
-        if ( m_bitmask ) {
-            m_traits.deallocate( m_buckets, num_buckets() + 1 );
-        }
-    }
 
     static constexpr auto max_num_buckets = std::bit_floor( std::numeric_limits< size_type >::max() );
 
@@ -1233,6 +1224,15 @@ class HashSetBase {
     }
 
   public:
+    HashSetBase() = default;
+
+    ~HashSetBase() {
+        destroy_entries();
+        if ( m_bitmask ) {
+            m_traits.deallocate( m_buckets, num_buckets() + 1 );
+        }
+    }
+
     size_type size() const { return m_occupied; }
 
     bool empty() const { return m_occupied == 0; }
