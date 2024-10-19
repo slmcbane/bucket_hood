@@ -80,3 +80,45 @@ TEST_CASE( "[small] rehash while containing elements already" ) {
     set.rehash( 0 );
     REQUIRE( set.capacity() == 768 );
 } // TEST_CASE
+
+TEST_CASE( "[small] change max load factor while containing elements" ) {
+    Splitmix64 generator( 0x12345678 );
+    bh_set< std::string > set;
+    std::unordered_set< std::string > reference;
+    set.set_max_load_factor( 0.95 );
+    set.rehash( 100 );
+    REQUIRE( set.capacity() == 121 );
+    for ( int i = 0; i < 100; ++i ) {
+        auto str = make_random_string( 100, generator );
+        set.insert( str );
+        reference.insert( std::move( str ) );
+    }
+    REQUIRE( compare_sets( set, reference ) );
+    REQUIRE( set != bh_set< std::string >{} );
+
+    // Reduce capacity
+    set.set_max_load_factor( 0.5 );
+    REQUIRE( set.capacity() == 64 );
+    REQUIRE( set.size() == 100 );
+
+    // Next insertion should trigger rehash
+    set.insert( make_random_string( 100, generator ) );
+    REQUIRE( set.capacity() == 128 );
+    REQUIRE( set.size() == 101 );
+
+    // Increase capacity
+    set.set_max_load_factor( 0.75 );
+    REQUIRE( set.capacity() == 192 );
+    for ( int i = 0; i < 91; ++i ) {
+        set.insert( make_random_string( 100, generator ) );
+    }
+    REQUIRE( set.size() == 192 );
+    REQUIRE( set.capacity() == 192 );
+    // Reduce capacity again and then rehash for new number of elements.
+    set.set_max_load_factor( 0.5 );
+    auto copy = set;
+    set.rehash( 192 );
+    REQUIRE( set.capacity() == 256 );
+    REQUIRE( set.num_buckets() == 512 / 8 );
+    REQUIRE( set == copy );
+}
