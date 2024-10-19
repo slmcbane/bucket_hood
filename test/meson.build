@@ -12,3 +12,6 @@ test('Fuzz tests for set with DebugBucket', set_fuzz)
 
 set_rehash = executable('set_rehash', 'set_rehash.cpp')
 test('Rehashing tests for set', set_rehash)
+
+set_trivial_copy = executable('set_trivial_copy', 'set_trivial_copy.cpp')
+test('Trivial copy tests for set', set_trivial_copy)

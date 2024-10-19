@@ -26,6 +26,7 @@
 #include <bit>
 #include <cassert>
 #include <concepts>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -936,6 +937,7 @@ class HashSetBase {
     };
 
     static_assert( std::is_trivially_destructible_v< bucket_type > );
+    static_assert( std::is_trivially_copyable_v< bucket_type > );
 
     static inline const bucket_type end_sentinel = bucket_type( EndSentinelTag{} );
     bucket_type* m_buckets{ const_cast< bucket_type* >( &end_sentinel ) };
@@ -1039,10 +1041,14 @@ class HashSetBase {
             return;
         }
         m_buckets = m_traits.allocate( num_buckets() + 1 );
-        for ( size_type i = 0; i < num_buckets(); ++i ) {
-            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
+        if constexpr ( std::is_trivially_copyable_v< value_type > ) {
+            std::memcpy( m_buckets, other.m_buckets, ( num_buckets() + 1 ) * sizeof( bucket_type ) );
+        } else {
+            for ( size_type i = 0; i < num_buckets(); ++i ) {
+                m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
+            }
+            m_traits.construct_at( m_buckets + num_buckets(), EndSentinelTag{} );
         }
-        m_traits.construct_at( m_buckets + num_buckets(), EndSentinelTag{} );
     }
 
     HashSetBase& operator=( const HashSetBase& other ) {
@@ -1073,9 +1079,12 @@ class HashSetBase {
             m_traits = other.m_traits;
         }
 
-        for ( size_type i = 0; i < num_buckets(); ++i ) {
-            // Ok because I've static asserted that buckets are trivially destructible.
-            m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
+        if constexpr ( std::is_trivially_copyable_v< value_type > ) {
+            std::memcpy( m_buckets, other.m_buckets, ( num_buckets() + 1 ) * sizeof( bucket_type ) );
+        } else {
+            for ( size_type i = 0; i < num_buckets(); ++i ) {
+                m_traits.construct_at( m_buckets + i, other.m_buckets[ i ], m_traits );
+            }
         }
 
         return *this;
