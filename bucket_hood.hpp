@@ -118,6 +118,8 @@ class selected_hash {
     [[no_unique_address]] BaseHash m_hash;
 };
 
+} // namespace bucket_hood
+
 /*********************************************************************************
  * My own Optional type, which supports optional references and monadic operations
  ********************************************************************************/
@@ -125,6 +127,7 @@ class selected_hash {
 // If I included the header separately don't import all of this...
 #ifndef SLM_OPTIONAL_HPP
 
+namespace slm {
 /*
  * Some is a proxy reference type to be used only for initializing an Optional.
  * It always forms a reference to the value passed to it and uses other than
@@ -787,13 +790,15 @@ inline constexpr std::compare_three_way_result_t< T, U > operator<=>( const Opti
     return std::compare_three_way_result_t< T, U >::less;
 }
 
-#else
+} // namespace slm
+
+#endif // SLM_OPTIONAL_HPP
+
+namespace bucket_hood {
 
 using slm::None;
 using slm::Optional;
 using slm::SomeRef;
-
-#endif // SLM_OPTIONAL_HPP
 
 /********************************************************************************
  * Configuration structs to set the behavior of assignment in the backend set
