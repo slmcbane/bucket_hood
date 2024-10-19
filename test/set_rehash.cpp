@@ -27,12 +27,12 @@ TEST_CASE( "[small] reserve ahead of time" ) {
     REQUIRE( set.size() == 0 );
 
     for ( int i = 0; i < 384; ++i ) {
-        REQUIRE( set.insert( make_random_string( 10, generator ) ) );
+        REQUIRE( set.insert( make_random_string( 100, generator ) ) );
     }
     REQUIRE( set.size() == 384 );
     REQUIRE( set.num_buckets() == 64 );
 
-    REQUIRE( set.insert( make_random_string( 10, generator ) ) );
+    REQUIRE( set.insert( make_random_string( 100, generator ) ) );
     REQUIRE( set.size() == 385 );
     REQUIRE( set.num_buckets() == 128 );
     REQUIRE( set.capacity() == 768 );
@@ -53,4 +53,30 @@ TEST_CASE( "[small] reserve ahead of time" ) {
     set.set_max_load_factor( 0.999999 );
     set.rehash( 524'287 );
     REQUIRE( set.capacity() == 524'287 );
+} // TEST_CASE
+
+TEST_CASE( "[small] rehash while containing elements already" ) {
+    Splitmix64 generator( 0xabcd87fe );
+    bh_set< std::string > set;
+    std::unordered_set< std::string > reference;
+    set.set_max_load_factor( 0.75 );
+    set.rehash( 100 );
+    REQUIRE( set.capacity() == 192 );
+    for ( int i = 0; i < 100; ++i ) {
+        auto str = make_random_string( 100, generator );
+        set.insert( str );
+        reference.insert( std::move( str ) );
+    }
+
+    set.rehash( 200 );
+    REQUIRE( compare_sets( set, reference ) );
+    REQUIRE( set.capacity() == 384 );
+
+    // This should be a no-op
+    set.rehash( 10 );
+    REQUIRE( set.capacity() == 384 );
+
+    // Calling with 0 should unconditionally double capacity
+    set.rehash( 0 );
+    REQUIRE( set.capacity() == 768 );
 } // TEST_CASE

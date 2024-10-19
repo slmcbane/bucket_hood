@@ -1262,9 +1262,13 @@ class HashSetBase {
                     "Overflowed size_type" );
             new_num_buckets = new_num_buckets_;
             new_num_buckets = std::bit_ceil( new_num_buckets );
-            m_rehash = lf * ( new_num_buckets * bucket_type::num_slots );
-            if ( m_rehash < sz ) {
+            size_type new_capacity = lf * ( new_num_buckets * bucket_type::num_slots );
+            if ( new_capacity < sz ) {
                 new_num_buckets *= 2;
+            }
+
+            if ( new_num_buckets <= current_num_buckets ) {
+                return;
             }
         } else {
             new_num_buckets = bounds_checked_mul( current_num_buckets, 2 );
