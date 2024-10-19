@@ -3,6 +3,14 @@ method devised by me that I have not found described elsewhere. It is an adaptat
 well-known Robin Hood algorithm for hash tables to allow use of SIMD instructions to probe
 multiple slots at once. I describe the algorithm further at the bottom of this file.
 
+**STATUS** Updated 10/18/2024: Writing a last few tests using the unordered_set. I am pretty
+confident that fuzz testing has covered the core algorithm thoroughly and that
+test/set_resource_management.cpp has covered most of the rest of what's important. Once
+I'm satisfied with the last few tests for unordered_set, I want to mock up an interface for
+unordered_map (this will be subject to change, since I'm not going with the std interface)
+and write a couple of test for that, including some interesting ones and a couple of benchmarks.
+Once I have a couple of benchmarks available I will start actual use of SIMD.
+
 The implementation is in the single header `bucket_hood.hpp`. It requires a compiler
 supporting the C++20 standard. This header also contains inline my implementation of an
 Optional type that supports optional references as well as the monadic operations added for
