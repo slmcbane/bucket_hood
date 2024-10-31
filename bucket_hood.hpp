@@ -993,7 +993,7 @@ class HashSetBase {
     }
 
     BH_ALWAYS_INLINE void rehash_insert( element_type&& element ) {
-        const auto& key = Traits::get_key( element );
+        const auto& key = m_traits.get_key( element );
         size_type hash_val = hash( key );
         auto location = locate( key, hash_val );
         assert( location.new_insertion() );
@@ -1311,92 +1311,107 @@ class HashSetBase {
     }
 };
 
-template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
-class TraitsForSet {
-    [[no_unique_address]] selected_hash< Hash > m_hash;
-    [[no_unique_address]] Compare m_comparison;
-    [[no_unique_address]] Allocator m_allocator;
-
+template < class GetKey, class Key, class Value, class Hash, class Compare, class Allocator, class Bucket >
+class Traits {
   public:
-    typedef T key_type;
-    typedef T value_type;
-    typedef Bucket< T > bucket_type;
+    typedef Key key_type;
+    typedef Value value_type;
     typedef selected_hash< Hash > hash_type;
     typedef Hash original_hash_type;
     typedef Compare comparison_type;
-    typedef std::allocator_traits< Allocator >::template rebind_alloc< bucket_type > bucket_allocator;
-    typedef std::allocator_traits< Allocator >::template rebind_alloc< value_type > value_allocator;
+    typedef Allocator allocator_type;
+    typedef Bucket bucket_type;
 
-    static const key_type& get_key( const key_type& key ) { return key; }
+  private:
+    [[no_unique_address]] hash_type m_hash;
+    [[no_unique_address]] comparison_type m_comparison;
+    [[no_unique_address]] allocator_type m_allocator;
+    [[no_unique_address]] GetKey m_get_key;
 
-    TraitsForSet() = default;
-    TraitsForSet( const Allocator& alloc ) : m_allocator{ alloc } {}
-    TraitsForSet( TraitsForSet&& ) = default;
-    TraitsForSet( const TraitsForSet& other )
+    typedef std::allocator_traits< allocator_type >::template rebind_alloc< bucket_type > bucket_allocator;
+    typedef std::allocator_traits< allocator_type >::template rebind_alloc< value_type > value_allocator;
+    typedef std::allocator_traits< bucket_allocator > bucket_allocator_traits;
+    typedef std::allocator_traits< value_allocator > value_allocator_traits;
+
+  public:
+    BH_ALWAYS_INLINE Traits() = default;
+    BH_ALWAYS_INLINE Traits( const allocator_type& alloc ) : m_allocator{ alloc } {}
+    BH_ALWAYS_INLINE Traits( Traits&& ) = default;
+    BH_ALWAYS_INLINE Traits( const Traits& other )
         : m_hash{ other.m_hash }, m_comparison{ other.m_comparison },
-          m_allocator{
-              std::allocator_traits< Allocator >::select_on_container_copy_construction( other.m_allocator ) } {
-    }
+          m_allocator{ std::allocator_traits< allocator_type >::select_on_container_copy_construction(
+              other.m_allocator ) } {}
 
-    TraitsForSet& operator=( TraitsForSet&& other ) {
+    BH_ALWAYS_INLINE Traits& operator=( Traits&& other ) {
         m_hash = std::move( other.m_hash );
         m_comparison = std::move( other.m_comparison );
-        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_move_assignment::value ) {
+        if constexpr ( std::allocator_traits<
+                           allocator_type >::propagate_on_container_move_assignment::value ) {
             m_allocator = std::move( other.m_allocator );
         }
         return *this;
     }
 
-    TraitsForSet& operator=( const TraitsForSet& other ) {
+    BH_ALWAYS_INLINE Traits& operator=( const Traits& other ) {
         m_hash = other.m_hash;
         m_comparison = std::move( other.m_comparison );
-        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_copy_assignment::value ) {
+        if constexpr ( std::allocator_traits<
+                           allocator_type >::propagate_on_container_copy_assignment::value ) {
             m_allocator = other.m_allocator;
         }
         return *this;
     }
 
-    friend void swap( TraitsForSet& a, TraitsForSet& b ) {
+    BH_ALWAYS_INLINE friend void swap( Traits& a, Traits& b ) {
         using std::swap;
         swap( a.m_hash, b.m_hash );
         swap( a.m_comparison, b.m_comparison );
-        if constexpr ( std::allocator_traits< Allocator >::propagate_on_container_swap::value ) {
+        if constexpr ( std::allocator_traits< allocator_type >::propagate_on_container_swap::value ) {
             swap( a.m_allocator, b.m_allocator );
         }
     }
 
-    auto hash( auto&& key ) const { return m_hash( key ); }
-    bool compare( auto&& k1, auto&& k2 ) const { return m_comparison( k1, k2 ); }
+    BH_ALWAYS_INLINE const Key& get_key( const value_type& v ) const { return m_get_key( v ); }
 
-    bucket_type* allocate( size_type n ) {
-        bucket_allocator alloc( m_allocator );
-        return std::allocator_traits< bucket_allocator >::allocate( alloc, n );
+    BH_ALWAYS_INLINE bool compare( const value_type& v, auto&& k ) const {
+        return m_comparison( get_key( v ), k );
     }
 
-    void deallocate( bucket_type* mem, size_type n ) {
+    BH_ALWAYS_INLINE auto hash( const key_type& k ) const { return m_hash( k ); }
+    BH_ALWAYS_INLINE auto hash( const value_type& k ) const
+    requires( !std::is_same_v< key_type, value_type > )
+    {
+        return m_hash( get_key( k ) );
+    }
+
+    BH_ALWAYS_INLINE bucket_type* allocate( size_type n ) {
         bucket_allocator alloc( m_allocator );
-        std::allocator_traits< bucket_allocator >::deallocate( alloc, mem, n );
+        return bucket_allocator_traits::allocate( alloc, n );
+    }
+
+    BH_ALWAYS_INLINE void deallocate( bucket_type* mem, size_type n ) {
+        bucket_allocator alloc( m_allocator );
+        bucket_allocator_traits::deallocate( alloc, mem, n );
     }
 
     BH_ALWAYS_INLINE void construct_at( value_type* where, auto&&... args ) {
         value_allocator alloc( m_allocator );
-        std::allocator_traits< value_allocator >::construct( m_allocator, where,
-                                                             std::forward< decltype( args ) >( args )... );
+        value_allocator_traits::construct( alloc, where, std::forward< decltype( args ) >( args )... );
     }
 
     BH_ALWAYS_INLINE void destroy_at( value_type* where ) {
         value_allocator alloc( m_allocator );
-        std::allocator_traits< value_allocator >::destroy( alloc, where );
+        value_allocator_traits::destroy( alloc, where );
     }
 
     template < class... Args >
     BH_ALWAYS_INLINE void construct_at( bucket_type* where, Args&&... args ) {
         bucket_allocator alloc( m_allocator );
-        std::allocator_traits< bucket_allocator >::construct( alloc, where, std::forward< Args >( args )... );
+        bucket_allocator_traits::construct( alloc, where, std::forward< Args >( args )... );
     }
 
     BH_ALWAYS_INLINE void destroy_at( bucket_type* where ) {
-        using mask_type = typename bucket_type::mask_type;
+        using mask_type = bucket_type::mask_type;
         mask_type occupied_mask = where->occupied_mask();
         while ( occupied_mask ) {
             int occupied_slot = std::countr_zero( occupied_mask );
@@ -1404,6 +1419,15 @@ class TraitsForSet {
             destroy_at( &where->get( occupied_slot ) );
         }
     }
+};
+
+template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
+using TraitsForSet = Traits< std::identity, T, T, Hash, Compare, Allocator, Bucket< T > >;
+
+template < class K, class V >
+struct KeyValuePair {
+    K key;
+    V value;
 };
 
 #ifndef BUCKET_HOOD_BUCKET_OVERRIDE
