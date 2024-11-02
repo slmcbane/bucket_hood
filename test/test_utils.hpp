@@ -131,12 +131,13 @@ struct DebugBucket {
         return *std::launder( reinterpret_cast< const T* >( slots[ slot ].storage ) );
     }
 
-    T& emplace( int slot, auto&& val, auto hash_val, int probe_length, auto& traits ) {
+    T& emplace( int slot, int probe_length, auto hash_val, auto& traits, auto&& first, auto&&... rest ) {
         assert( !occupied( slot ) && probe_length < 256 );
         hash_bits[ slot ] = get_check_bits( hash_val );
         probe_lengths[ slot ] = probe_length;
         T& result = get( slot );
-        traits.construct_at( &result, std::forward< decltype( val ) >( val ) );
+        traits.construct_at( &result, std::forward< decltype( first ) >( first ),
+                             std::forward< decltype( rest ) >( rest )... );
         return result;
     }
 

@@ -967,7 +967,7 @@ class HashSetBase {
             auto empty_mask = bucket->empty_slots();
             if ( empty_mask ) {
                 slot = std::countr_zero( empty_mask );
-                bucket->emplace( slot, std::move( evicted ), hash_bits, probe_len, m_traits );
+                bucket->emplace( slot, probe_len, hash_bits, m_traits, std::move( evicted ) );
                 return original_slot;
             } else if ( bucket->all_probe_lengths_shorter_than( probe_len ) ) {
                 slot = bucket->min_probe_length_slot();
@@ -980,7 +980,7 @@ class HashSetBase {
 
         // Failed due to overflowed probe length. Reinsert the removed item, and return a negative
         // slot number to signal failure. Caller is responsible for rehashing.
-        original_bucket->emplace( original_slot, std::move( evicted ), hash_bits, probe_len, m_traits );
+        original_bucket->emplace( original_slot, probe_len, hash_bits, m_traits, std::move( evicted ) );
         return -1;
     }
 
@@ -998,14 +998,17 @@ class HashSetBase {
         auto location = locate( key, hash_val );
         assert( location.new_insertion() );
         assert( location.bucket );
-        emplace_at( location, std::move( element ), hash_val );
+        emplace_at( location, hash_val, std::move( element ) );
     }
 
-    BH_ALWAYS_INLINE Optional< element_type& > unchecked_emplace( const Location& where, auto&& val,
-                                                                  size_type hash_val ) {
+    template < class First, class... Rest >
+    requires std::constructible_from< element_type, First, Rest... >
+    BH_ALWAYS_INLINE Optional< element_type& > unchecked_emplace( const Location& where, size_type hash_val,
+                                                                  First&& first, Rest&&... rest ) {
         m_occupied++;
-        return SomeRef( where.bucket->emplace( where.slot, std::forward< decltype( val ) >( val ), hash_val,
-                                               where.probe_length, m_traits ) );
+        return SomeRef( where.bucket->emplace( where.slot, where.probe_length, hash_val, m_traits,
+                                               std::forward< First >( first ),
+                                               std::forward< Rest >( rest )... ) );
     }
 
   protected:
@@ -1132,16 +1135,18 @@ class HashSetBase {
                                                      : m_buckets + num_buckets() );
     }
 
-    BH_ALWAYS_INLINE Optional< element_type& > emplace_at( Location where, auto&& val, size_type hash_val ) {
+    BH_ALWAYS_INLINE Optional< element_type& > emplace_at( Location where, size_type hash_val, auto&& key,
+                                                           auto&&... args ) {
         while ( unlikely( where.slot < 0 ) ) {
             int evicted_slot = evict( where.bucket );
             where.slot = evicted_slot;
             if ( unlikely( evicted_slot < 0 ) ) {
                 rehash( 0 );
-                where = locate( val, hash_val );
+                where = locate( key, hash_val );
             }
         }
-        return unchecked_emplace( where, std::forward< decltype( val ) >( val ), hash_val );
+        return unchecked_emplace( where, hash_val, std::forward< decltype( key ) >( key ),
+                                  std::forward< decltype( args ) >( args )... );
     }
 
     BH_ALWAYS_INLINE void erase_at( bucket_type* bucket, size_type slot ) {
@@ -1184,8 +1189,7 @@ class HashSetBase {
      * is < 0 to indicate the fact. If probe length overflows an 8-bit integer the returned
      * probe length is 256 and returned bucket is nullptr (this requires a rehash).
      */
-    template < transparent_key< Traits > K >
-    BH_ALWAYS_INLINE Location locate( K&& key, size_type hash_val ) const {
+    BH_ALWAYS_INLINE Location locate( auto&& key, size_type hash_val ) const {
         auto bucket_index = hash_val & m_bitmask;
         int probe_length = 0;
         auto check_bits = bucket_type::get_check_bits( hash_val );
@@ -1321,6 +1325,7 @@ class Traits {
     typedef Compare comparison_type;
     typedef Allocator allocator_type;
     typedef Bucket bucket_type;
+    typedef bucket_type::value_type element_type;
 
   private:
     [[no_unique_address]] hash_type m_hash;
@@ -1329,7 +1334,7 @@ class Traits {
     [[no_unique_address]] GetKey m_get_key;
 
     typedef std::allocator_traits< allocator_type >::template rebind_alloc< bucket_type > bucket_allocator;
-    typedef std::allocator_traits< allocator_type >::template rebind_alloc< value_type > value_allocator;
+    typedef std::allocator_traits< allocator_type >::template rebind_alloc< element_type > value_allocator;
     typedef std::allocator_traits< bucket_allocator > bucket_allocator_traits;
     typedef std::allocator_traits< value_allocator > value_allocator_traits;
 
@@ -1371,18 +1376,21 @@ class Traits {
         }
     }
 
-    BH_ALWAYS_INLINE const Key& get_key( const value_type& v ) const { return m_get_key( v ); }
+    BH_ALWAYS_INLINE const Key& get_key( const element_type& v ) const { return m_get_key( v ); }
 
-    BH_ALWAYS_INLINE bool compare( const value_type& v, auto&& k ) const {
+    BH_ALWAYS_INLINE bool compare( const element_type& v, const key_type& k ) const {
         return m_comparison( get_key( v ), k );
     }
 
-    BH_ALWAYS_INLINE auto hash( const key_type& k ) const { return m_hash( k ); }
-    BH_ALWAYS_INLINE auto hash( const value_type& k ) const
-    requires( !std::is_same_v< key_type, value_type > )
+    BH_ALWAYS_INLINE bool compare( const element_type& a, const element_type& b ) const
+    requires( !std::same_as< element_type, key_type > )
     {
-        return m_hash( get_key( k ) );
+        return m_comparison( get_key( a ), get_key( b ) );
     }
+
+    BH_ALWAYS_INLINE auto hash( const transparent_key< Traits > auto& k ) const { return m_hash( k ); }
+
+    BH_ALWAYS_INLINE auto hash( const element_type& k ) const { return m_hash( get_key( k ) ); }
 
     BH_ALWAYS_INLINE bucket_type* allocate( size_type n ) {
         bucket_allocator alloc( m_allocator );
@@ -1394,12 +1402,12 @@ class Traits {
         bucket_allocator_traits::deallocate( alloc, mem, n );
     }
 
-    BH_ALWAYS_INLINE void construct_at( value_type* where, auto&&... args ) {
+    BH_ALWAYS_INLINE void construct_at( element_type* where, auto&&... args ) {
         value_allocator alloc( m_allocator );
         value_allocator_traits::construct( alloc, where, std::forward< decltype( args ) >( args )... );
     }
 
-    BH_ALWAYS_INLINE void destroy_at( value_type* where ) {
+    BH_ALWAYS_INLINE void destroy_at( element_type* where ) {
         value_allocator alloc( m_allocator );
         value_allocator_traits::destroy( alloc, where );
     }
@@ -1424,11 +1432,31 @@ class Traits {
 template < class T, class Hash, class Compare, class Allocator, template < class > class Bucket >
 using TraitsForSet = Traits< std::identity, T, T, Hash, Compare, Allocator, Bucket< T > >;
 
+template < class Invocable >
+struct Invoker {
+    Invocable& f;
+
+    decltype( auto ) operator()() { return f(); }
+};
+
 template < class K, class V >
 struct KeyValuePair {
     K key;
     V value;
+
+    struct GetKey {
+        const K& operator()( const KeyValuePair& kv ) const { return kv.key; }
+    };
+
+    template < class K2, class F >
+    requires std::constructible_from< K, K2 > && std::invocable< F > &&
+                 std::constructible_from< V, std::invoke_result_t< Invoker< F > > >
+    KeyValuePair( K2&& k, Invoker< F >&& invoker ) : key( std::forward< K2 >( k ) ), value( invoker() ) {}
 };
+
+template < class K, class V, class Hash, class Compare, class Allocator, template < class > class Bucket >
+using TraitsForMap = Traits< typename KeyValuePair< K, V >::GetKey, K, V, Hash, Compare, Allocator,
+                             Bucket< KeyValuePair< K, V > > >;
 
 #ifndef BUCKET_HOOD_BUCKET_OVERRIDE
 
@@ -1494,7 +1522,7 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
             location = this->locate( key, hash_val );
         }
 
-        return this->emplace_at( location, std::forward< K >( key ), hash_val );
+        return this->emplace_at( location, hash_val, std::forward< K >( key ) );
     }
 
     template < class... Args >
@@ -1537,6 +1565,61 @@ class unordered_set : public HashSetBase< TraitsForSet< Key, Hash, KeyEqual, All
         }
 
         return true;
+    }
+};
+
+template < class Key, class Value, class Hash = std::hash< Key >, class KeyEqual = std::equal_to< Key >,
+           class Allocator = std::allocator< KeyValuePair< Key, Value > > >
+class unordered_map
+    : public HashSetBase< TraitsForMap< Key, Value, Hash, KeyEqual, Allocator, SelectedBucket > > {
+
+    using Traits = TraitsForMap< Key, Value, Hash, KeyEqual, Allocator, SelectedBucket >;
+
+  public:
+    typedef Key key_type;
+    typedef Value value_type;
+
+    struct Lookup {
+        value_type& value;
+        bool inserted;
+    };
+
+    template < class T >
+    constexpr static bool usable_as_key =
+        std::constructible_from< key_type, T > && transparent_key< T, Traits >;
+
+    template < class K, class Func >
+    requires usable_as_key< K > && std::invocable< Func > &&
+             std::convertible_to< std::invoke_result_t< Func >, Value >
+    Lookup find_or_insert_with( K& key, Func&& func ) {
+        size_type hash_val = this->hash( key );
+        auto location = this->locate( key, hash_val );
+        if ( !location.new_insertion() ) {
+            return { location.bucket->get( location.slot ).value, false };
+        }
+
+        while ( unlikely( this->should_rehash() || !location.bucket ) ) {
+            this->rehash( 0 );
+            location = this->locate( key, hash_val );
+        }
+
+        auto& kv = *this->emplace_at( location, hash_val, std::forward< K >( key ), Invoker< Func >( func ) );
+        return { kv.value, true };
+    }
+
+    template < class K >
+    requires usable_as_key< K >
+    Lookup find_or_insert( K&& key, Value&& value ) {
+        return find_or_insert_with( std::forward< K >( key ),
+                                    [ &value ]() -> Value&& { return static_cast< Value&& >( value ); } );
+    }
+
+    Optional< Value& > find( const transparent_key< Traits > auto& key ) {
+        auto [ bucket, slot, _ ] = this->locate( key, this->hash( key ) );
+        if ( bucket && slot >= 0 && bucket->occupied( slot ) ) {
+            return SomeRef( bucket->get( slot ).value );
+        }
+        return None;
     }
 };
 

@@ -15,3 +15,6 @@ test('Rehashing tests for set', set_rehash)
 
 set_trivial_copy = executable('set_trivial_copy', 'set_trivial_copy.cpp')
 test('Trivial copy tests for set', set_trivial_copy)
+
+collatz = executable('collatz', 'collatz.cpp')
+test('Collatz sequence test for map', collatz)

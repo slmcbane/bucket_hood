@@ -48,7 +48,7 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
         n = stack.top();
         if ( next_seq ) {
             stack.pop();
-            next_seq = cache.entry( n ).emplace( n, *next_seq );
+            next_seq = cache.find_or_insert( n, { n, *next_seq } ).value;
         } else if ( n == 1 ) {
             stack.pop();
             next_seq = one;
@@ -57,7 +57,7 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
             auto maybe_next = cache.find( next );
             if ( maybe_next ) {
                 stack.pop();
-                next_seq = cache.entry( n ).insert( { n, *maybe_next } );
+                next_seq = cache.find_or_insert( n, { n, *maybe_next } ).value;
             } else {
                 stack.push( next );
             }
@@ -67,5 +67,12 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
 }
 
 const CollatzSequence& collatz( long n, bh_map& cache ) {
-    return cache.entry( n ).or_insert_with( [ & ]() { return no_recurse_collatz( n, cache ); } );
+    return cache.find_or_insert_with( n, [ & ]() { return no_recurse_collatz( n, cache ); } ).value;
+}
+
+int main() {
+    bh_map cache;
+    for ( int i = 10; i < 100'000; ++i ) {
+        collatz( i, cache ).print();
+    }
 }
