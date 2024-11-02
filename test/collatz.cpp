@@ -36,10 +36,10 @@ class CollatzSequence {
     }
 };
 
-using bh_map = bucket_hood::unordered_map< long, CollatzSequence, std::hash< long >, std::equal_to<>,
-                                           DebugAllocator< long > >;
+using bh_map = bucket_hood::unordered_map< long, std::unique_ptr< CollatzSequence >, std::hash< long >,
+                                           std::equal_to<>, DebugAllocator< long > >;
 
-static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
+static const CollatzSequence& collatz( long n, bh_map& cache ) {
     static constexpr CollatzSequence one{ 1 };
     std::stack< long > stack;
     stack.push( n );
@@ -48,7 +48,7 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
         n = stack.top();
         if ( next_seq ) {
             stack.pop();
-            next_seq = cache.find_or_insert( n, { n, *next_seq } ).value;
+            next_seq = *cache.find_or_insert( n, std::make_unique< CollatzSequence >( n, *next_seq ) ).value;
         } else if ( n == 1 ) {
             stack.pop();
             next_seq = one;
@@ -57,7 +57,8 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
             auto maybe_next = cache.find( next );
             if ( maybe_next ) {
                 stack.pop();
-                next_seq = cache.find_or_insert( n, { n, *maybe_next } ).value;
+                next_seq =
+                    *cache.find_or_insert( n, std::make_unique< CollatzSequence >( n, **maybe_next ) ).value;
             } else {
                 stack.push( next );
             }
@@ -66,13 +67,16 @@ static const CollatzSequence& no_recurse_collatz( long n, bh_map& cache ) {
     return *next_seq;
 }
 
-const CollatzSequence& collatz( long n, bh_map& cache ) {
-    return cache.find_or_insert_with( n, [ & ]() { return no_recurse_collatz( n, cache ); } ).value;
-}
-
 int main() {
     bh_map cache;
-    for ( int i = 10; i < 100'000; ++i ) {
-        collatz( i, cache ).print();
+    long max_len = 1;
+    for ( int i = 10; i < 1'000'000; ++i ) {
+        const auto& seq = collatz( i, cache );
+        if ( seq.size() > max_len ) {
+            std::format_to( std::ostreambuf_iterator( std::cout ), "{}: {}\n", i, seq.size() );
+            max_len = seq.size();
+        }
     }
+    std::cout << "cache.size() = " << cache.size() << '\n';
+    assert( max_len == 525 );
 }
