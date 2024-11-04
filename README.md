@@ -3,22 +3,19 @@ method devised by me that I have not found described elsewhere. It is an adaptat
 well-known Robin Hood algorithm for hash tables to allow use of SIMD instructions to probe
 multiple slots at once. I describe the algorithm further at the bottom of this file.
 
-**STATUS** Updated 10/18/2024: Writing a last few tests using the unordered_set. I am pretty
-confident that fuzz testing has covered the core algorithm thoroughly and that
-test/set_resource_management.cpp has covered most of the rest of what's important. Once
-I'm satisfied with the last few tests for unordered_set, I want to mock up an interface for
-unordered_map (this will be subject to change, since I'm not going with the std interface)
-and write a couple of test for that, including some interesting ones and a couple of benchmarks.
-Once I have a couple of benchmarks available I will start actual use of SIMD.
+**STATUS** Updated 11/4/2024: Determining the tentative interface for my unordered_map. I am
+not sticking to the same API as the standard library. My next item to do is write a couple of
+benchmarks to see what I think I might be missing from the unordered_map API, and once I have
+a couple of benchmarks I will implement a SIMD backend and do some profiling. Currently, it is
+uncertain if performance of this collision resolution algorithm will actually be competitive
+with state of the art open addressing containers.
 
 The implementation is in the single header `bucket_hood.hpp`. It requires a compiler
 supporting the C++20 standard. This header also contains inline my implementation of an
 Optional type that supports optional references as well as the monadic operations added for
 `std::optional` in C++23. This is added to serve as a return type for the `find` function;
 I have modified the interface of my containers to differ from the standard library unordered
-containers, mostly in line with Barry Revzin's article
-[What's the right hash table API?](https://brevzin.github.io/c++/2023/05/23/map-api/).
-The modified interface is documented below.
+containers.
 
 `bucket_hood::unordered_map` and `bucket_hood::unordered_set` should satisfy the requirements
 of _AllocatorAwareContainer_. They support transparent hashing (e.g. for using `std::string_view`
@@ -45,4 +42,11 @@ for doctest.h, which is Copyright 2016-2023 Viktor Kirilov, and included here as
 its MIT license terms.
 
 ### Algorithm
-TODO
+Filling out this section is a to-do item. The idea is that instead of probing buckets containing
+0 or 1 items as in standard Robin Hood hashing, we probe buckets with N slots, each of which can be
+filled or empty and tracks its own probe length. When inserting, a new element is placed in a bucket
+if any slot is available or if the current probe length is longer than the maximum probe length in
+the bucket currently being probed. If the latter, the element with the minimum probe length in a bucket
+is displaced. Probing 16 or 32 slots at a time using SIMD hopefully enables the table to perform well
+at quite high load factors. There are 2 bytes of overhead per slot - one byte for probe length, and the
+other to store 7 bits of hash value plus a flag, for fast probing.
