@@ -1574,10 +1574,20 @@ class unordered_map
     : public HashSetBase< TraitsForMap< Key, Value, Hash, KeyEqual, Allocator, SelectedBucket > > {
 
     using Traits = TraitsForMap< Key, Value, Hash, KeyEqual, Allocator, SelectedBucket >;
+    typedef HashSetBase< TraitsForMap< Key, Value, Hash, KeyEqual, Allocator, SelectedBucket > > Base;
 
   public:
     typedef Key key_type;
     typedef Value value_type;
+    typedef SetIterator< typename Traits::bucket_type, false > iterator;
+    typedef SetIterator< typename Traits::bucket_type, true > const_iterator;
+
+    iterator begin() { return Base::begin(); }
+    iterator end() { return Base::end(); }
+    const_iterator begin() const { return Base::cbegin(); }
+    const_iterator end() const { return Base::cend(); }
+    const_iterator cbegin() const { return Base::cbegin(); }
+    const_iterator cend() const { return Base::cend(); }
 
     struct Lookup {
         value_type& value;
@@ -1591,7 +1601,7 @@ class unordered_map
     template < class K, class Func >
     requires usable_as_key< K > && std::invocable< Func > &&
              std::convertible_to< std::invoke_result_t< Func >, Value >
-    Lookup find_or_insert_with( K& key, Func&& func ) {
+    Lookup find_or_insert_with( K&& key, Func&& func ) {
         size_type hash_val = this->hash( key );
         auto location = this->locate( key, hash_val );
         if ( !location.new_insertion() ) {
@@ -1620,6 +1630,36 @@ class unordered_map
             return SomeRef( bucket->get( slot ).value );
         }
         return None;
+    }
+
+    Optional< const Value& > find( const transparent_key< Traits > auto& key ) const {
+        return const_cast< unordered_map* >( this )->find( key );
+    }
+
+    iterator find_iterator( const transparent_key< Traits > auto& key ) {
+        auto [ bucket, slot, _ ] = this->locate( key, this->hash( key ) );
+        if ( bucket && slot >= 0 && bucket->occupied( slot ) ) {
+            return iterator( bucket, slot );
+        }
+        return end();
+    }
+
+    const_iterator find_iterator( const transparent_key< Traits > auto& key ) const {
+        return const_cast< unordered_map* >( this )->find_iterator( key );
+    }
+
+    bool erase( const transparent_key< Traits > auto& key ) {
+        auto location = this->locate( key, this->hash( key ) );
+        if ( location.new_insertion() ) {
+            return false;
+        }
+        this->erase_at( location.bucket, location.slot );
+        return true;
+    }
+
+    iterator erase( iterator it ) {
+        this->erase_at( this->get_bucket( it ), this->get_slot( it ) );
+        return ++it;
     }
 };
 
