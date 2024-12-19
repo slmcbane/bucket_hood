@@ -4,5 +4,5 @@ bucket_hood_dep = declare_dependency(include_directories: include_directories('.
 
 if not meson.is_subproject()
     subdir('test')
-    # subdir('benchmark')
+    subdir('benchmark')
 endif
