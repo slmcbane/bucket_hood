@@ -1645,8 +1645,8 @@ struct SSE2Bucket : BucketBase< T, 16, 0.95 > {
 
     BH_ALWAYS_INLINE bool all_probe_lengths_shorter_than( int probe_length ) const {
         __m128i cmp =
-            _mm_cmplt_epi8( _mm_set1_epi8( probe_length ),
-                            _mm_load_si128( reinterpret_cast< const __m128i* >( this->probe_lengths ) ) );
+            _mm_cmplt_epi8( _mm_load_si128( reinterpret_cast< const __m128i* >( this->probe_lengths ) ),
+                            _mm_set1_epi8( probe_length ) );
         return _mm_movemask_epi8( cmp ) == 0xffff;
     }
 };
