@@ -34,6 +34,14 @@
 #include <type_traits>
 #include <utility>
 
+#ifdef __SSE2__
+#include <x86intrin.h>
+#else
+#ifdef __AVX2__
+#include <x86intrin.h>
+#endif
+#endif
+
 /********************************************************************************
  * Core types and constants
  *******************************************************************************/
@@ -1615,6 +1623,35 @@ template < class T >
 struct DebugBucket : BucketBase< T, 8, 0.9 > {
     using BucketBase< T, 8, 0.9 >::BucketBase;
 };
+
+#ifdef __SSE2__
+
+template < class T >
+struct SSE2Bucket : BucketBase< T, 16, 0.95 > {
+    using BucketBase< T, 16, 0.95 >::BucketBase;
+    using mask_type = BucketBase< T, 16, 0.95 >::mask_type;
+
+    BH_ALWAYS_INLINE mask_type occupied_mask() const {
+        return _mm_movemask_epi8( _mm_load_si128( reinterpret_cast< const __m128i* >( this->hash_bits ) ) );
+    }
+
+    BH_ALWAYS_INLINE mask_type matching_slots( uint8_t check_bits ) const {
+        return _mm_movemask_epi8(
+            _mm_cmpeq_epi8( _mm_set1_epi8( check_bits ),
+                            _mm_load_si128( reinterpret_cast< const __m128i* >( this->hash_bits ) ) ) );
+    }
+
+    BH_ALWAYS_INLINE mask_type empty_slots() const { return 0xffffu & ~occupied_mask(); }
+
+    BH_ALWAYS_INLINE bool all_probe_lengths_shorter_than( int probe_length ) const {
+        __m128i cmp =
+            _mm_cmplt_epi8( _mm_set1_epi8( probe_length ),
+                            _mm_load_si128( reinterpret_cast< const __m128i* >( this->probe_lengths ) ) );
+        return _mm_movemask_epi8( cmp ) == 0xffff;
+    }
+};
+
+#endif
 
 #ifndef BUCKET_HOOD_BUCKET_OVERRIDE
 
