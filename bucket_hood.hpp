@@ -1596,20 +1596,20 @@ struct BucketBase {
     int min_probe_length_slot() const {
         int min = 256;
         int min_slot = -1;
-        for ( int slot = 0; slot < 8; ++slot ) {
+        for ( int slot = 0; slot < num_slots; ++slot ) {
             if ( probe_lengths[ slot ] < min ) {
                 min = probe_lengths[ slot ];
                 min_slot = slot;
             }
         }
-        assert( min_slot >= 0 && min_slot < 8 );
+        assert( min_slot >= 0 && min_slot < num_slots );
         return min_slot;
     }
 
     auto max_probe_length_slot() const {
         int max = 0;
         int max_slot = 0;
-        for ( int slot = 0; slot < 8; ++slot ) {
+        for ( int slot = 0; slot < num_slots; ++slot ) {
             if ( probe_lengths[ slot ] > max ) {
                 max = probe_lengths[ slot ];
                 max_slot = slot;
