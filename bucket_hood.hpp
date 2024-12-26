@@ -1458,6 +1458,164 @@ template < class K, class V, class Hash, class Compare, class Allocator, templat
 using TraitsForMap = Traits< typename KeyValuePair< K, V >::GetKey, K, V, Hash, Compare, Allocator,
                              Bucket< KeyValuePair< K, V > > >;
 
+template < class T, unsigned VecSize, double default_load_factor_ >
+struct BucketBase {
+    typedef T value_type;
+    typedef unsigned mask_type;
+    static constexpr int num_slots = VecSize;
+    static constexpr float default_load_factor = default_load_factor_;
+
+    alignas( num_slots ) uint8_t hash_bits[ num_slots ] = { 0 };
+    alignas( num_slots ) uint8_t probe_lengths[ num_slots ] = { 0 };
+
+    struct {
+        alignas( T ) std::byte storage[ sizeof( T ) ];
+    } slots[ num_slots ];
+
+    bool is_sentinel() const {
+        return std::ranges::all_of( hash_bits, []( uint8_t x ) { return x == 0x7f; } );
+    }
+
+    constexpr BucketBase() = default;
+
+    BucketBase( const BucketBase& other, auto&& traits ) {
+        std::ranges::copy( other.hash_bits, std::begin( hash_bits ) );
+        std::ranges::copy( other.probe_lengths, std::begin( probe_lengths ) );
+        for ( int slot = 0; slot < num_slots; ++slot ) {
+            probe_lengths[ slot ] = other.probe_lengths[ slot ];
+            if ( ( hash_bits[ slot ] = other.hash_bits[ slot ] ) ) {
+                traits.construct_at( &get( slot ), other.get( slot ) );
+            }
+        }
+    }
+
+    BucketBase( EndSentinelTag ) { std::ranges::fill( hash_bits, 0x7f ); }
+
+    bool occupied( int slot ) const {
+        assert( slot < num_slots );
+        return hash_bits[ slot ] >= 0x80;
+    }
+
+    T& get( int slot ) {
+        assert( slot < num_slots );
+        return *std::launder( reinterpret_cast< T* >( slots[ slot ].storage ) );
+    }
+
+    const T& get( int slot ) const { return const_cast< BucketBase* >( this )->get( slot ); }
+
+    T& emplace( int slot, int probe_length, auto hash_val, auto& traits, auto&& first, auto&&... rest ) {
+        assert( !occupied( slot ) && probe_length < 256 );
+        hash_bits[ slot ] = get_check_bits( hash_val );
+        probe_lengths[ slot ] = probe_length;
+        T* result = new ( reinterpret_cast< T* >( slots[ slot ].storage ) )
+            T( std::forward< decltype( first ) >( first ), std::forward< decltype( rest ) >( rest )... );
+        return *result;
+    }
+
+    void swap( int slot, T& x, uint8_t& hash_bits, uint8_t& probe_len ) {
+        using std::swap;
+        assert( hash_bits & 0x80 );
+        swap( get( slot ), x );
+        swap( this->hash_bits[ slot ], hash_bits );
+        swap( probe_len, probe_lengths[ slot ] );
+    }
+
+    auto extract( int slot, auto& traits ) {
+        assert( slot >= 0 && slot < num_slots );
+        auto out = std::make_tuple( std::move( get( slot ) ), hash_bits[ slot ], probe_lengths[ slot ] );
+        traits.destroy_at( &get( slot ) );
+        hash_bits[ slot ] = 0;
+        return out;
+    }
+
+    void destroy( int slot, auto& traits ) {
+        assert( occupied( slot ) );
+        traits.destroy_at( &get( slot ) );
+        hash_bits[ slot ] = 0;
+        probe_lengths[ slot ] = 0;
+    }
+
+    void steal_from( int my_slot, BucketBase* other, int other_slot ) {
+        assert( occupied( my_slot ) );
+        assert( other->occupied( other_slot ) );
+        assert( other->probe_lengths[ other_slot ] > 0 );
+        get( my_slot ) = std::move( other->get( other_slot ) );
+        hash_bits[ my_slot ] = other->hash_bits[ other_slot ];
+        probe_lengths[ my_slot ] = other->probe_lengths[ other_slot ] - 1;
+    }
+
+    static uint8_t get_check_bits( auto hash_val ) { return ( hash_val & 0xff ) | 0x80; }
+
+    mask_type occupied_mask() const {
+        mask_type out = 0;
+        for ( int slot = 0; slot < num_slots; ++slot ) {
+            if ( occupied( slot ) ) {
+                out |= ( 1u << slot );
+            }
+        }
+        return out;
+    }
+
+    mask_type matching_slots( uint8_t check_bits ) const {
+        mask_type out = 0;
+        for ( int slot = 0; slot < num_slots; ++slot ) {
+            if ( check_bits == hash_bits[ slot ] ) {
+                out |= ( 1u << slot );
+            }
+        }
+        return out;
+    }
+
+    mask_type empty_slots() const {
+        mask_type out = 0;
+        for ( int slot = 0; slot < num_slots; ++slot ) {
+            if ( !occupied( slot ) ) {
+                out |= ( 1u << slot );
+            }
+        }
+        return out;
+    }
+
+    bool all_probe_lengths_shorter_than( int probe_length ) const {
+        for ( int slot = 0; slot < num_slots; ++slot ) {
+            if ( probe_lengths[ slot ] >= probe_length ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int min_probe_length_slot() const {
+        int min = 256;
+        int min_slot = -1;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( probe_lengths[ slot ] < min ) {
+                min = probe_lengths[ slot ];
+                min_slot = slot;
+            }
+        }
+        assert( min_slot >= 0 && min_slot < 8 );
+        return min_slot;
+    }
+
+    auto max_probe_length_slot() const {
+        int max = 0;
+        int max_slot = 0;
+        for ( int slot = 0; slot < 8; ++slot ) {
+            if ( probe_lengths[ slot ] > max ) {
+                max = probe_lengths[ slot ];
+                max_slot = slot;
+            }
+        }
+        return std::make_pair( max_slot, max );
+    }
+};
+
+template < class T >
+struct DebugBucket : BucketBase< T, 8, 0.9 > {
+    using BucketBase< T, 8, 0.9 >::BucketBase;
+};
+
 #ifndef BUCKET_HOOD_BUCKET_OVERRIDE
 
 // I've defined it like this just to silence some linter errors until there's an actual implementation.
