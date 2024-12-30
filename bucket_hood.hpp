@@ -71,6 +71,16 @@ BH_ALWAYS_INLINE bool likely( long condition ) noexcept { return __builtin_expec
 BH_ALWAYS_INLINE bool unlikely( long condition ) noexcept { return __builtin_expect( condition, 0 ); }
 [[noreturn]] inline void unreachable() noexcept { __builtin_unreachable(); }
 
+BH_ALWAYS_INLINE uint8_t get_check_bits( size_type hash_val ) {
+    uint8_t check_bits = 0x80;
+    if constexpr ( std::is_same_v< size_type, uint32_t > ) {
+        check_bits |= hash_val >> 24;
+    } else {
+        check_bits |= hash_val >> 56;
+    }
+    return check_bits;
+}
+
 /********************************************************************************
  * Safely multiply two size_types; protect against overflow.
  * Probably not a concern for 64-bit size_type but for the 32-bit default it can
@@ -931,6 +941,11 @@ concept transparent_key =
 // Construct tag to buckets to indicate we should construct an end sentinel.
 struct EndSentinelTag {};
 
+// Tag type to differentiate extract check bits from a hash value.
+struct CheckBits {
+    uint8_t bits;
+};
+
 template < class Traits >
 class HashSetBase {
     typedef Traits::bucket_type bucket_type;
@@ -975,7 +990,7 @@ class HashSetBase {
             auto empty_mask = bucket->empty_slots();
             if ( empty_mask ) {
                 slot = std::countr_zero( empty_mask );
-                bucket->emplace( slot, probe_len, hash_bits, m_traits, std::move( evicted ) );
+                bucket->emplace( slot, probe_len, CheckBits{ hash_bits }, m_traits, std::move( evicted ) );
                 return original_slot;
             } else if ( bucket->all_probe_lengths_shorter_than( probe_len ) ) {
                 slot = bucket->min_probe_length_slot();
@@ -1200,7 +1215,7 @@ class HashSetBase {
     BH_ALWAYS_INLINE Location locate( auto&& key, size_type hash_val ) const {
         auto bucket_index = hash_val & m_bitmask;
         int probe_length = 0;
-        auto check_bits = bucket_type::get_check_bits( hash_val );
+        auto check_bits = get_check_bits( hash_val );
 
         do {
             bucket_type* bucket = m_buckets + bucket_index;
@@ -1487,11 +1502,10 @@ struct BucketBase {
     constexpr BucketBase() = default;
 
     BucketBase( const BucketBase& other, auto&& traits ) {
-        std::ranges::copy( other.hash_bits, std::begin( hash_bits ) );
-        std::ranges::copy( other.probe_lengths, std::begin( probe_lengths ) );
         for ( int slot = 0; slot < num_slots; ++slot ) {
+            hash_bits[ slot ] = other.hash_bits[ slot ];
             probe_lengths[ slot ] = other.probe_lengths[ slot ];
-            if ( ( hash_bits[ slot ] = other.hash_bits[ slot ] ) ) {
+            if ( occupied( slot ) ) {
                 traits.construct_at( &get( slot ), other.get( slot ) );
             }
         }
@@ -1511,13 +1525,20 @@ struct BucketBase {
 
     const T& get( int slot ) const { return const_cast< BucketBase* >( this )->get( slot ); }
 
-    T& emplace( int slot, int probe_length, auto hash_val, auto& traits, auto&& first, auto&&... rest ) {
+    T& emplace( int slot, int probe_length, size_type hash_val, auto& traits, auto&& first, auto&&... rest ) {
         assert( !occupied( slot ) && probe_length < 256 );
         hash_bits[ slot ] = get_check_bits( hash_val );
         probe_lengths[ slot ] = probe_length;
         T* result = new ( reinterpret_cast< T* >( slots[ slot ].storage ) )
             T( std::forward< decltype( first ) >( first ), std::forward< decltype( rest ) >( rest )... );
         return *result;
+    }
+
+    void emplace( int slot, int probe_length, CheckBits check_bits, auto& traits, T&& x ) {
+        assert( !occupied( slot ) && probe_length < 256 );
+        hash_bits[ slot ] = check_bits.bits;
+        probe_lengths[ slot ] = probe_length;
+        new ( reinterpret_cast< T* >( slots[ slot ].storage ) ) T( std::move( x ) );
     }
 
     void swap( int slot, T& x, uint8_t& hash_bits, uint8_t& probe_len ) {
@@ -1528,7 +1549,7 @@ struct BucketBase {
         swap( probe_len, probe_lengths[ slot ] );
     }
 
-    auto extract( int slot, auto& traits ) {
+    std::tuple< T, uint8_t, uint8_t > extract( int slot, auto& traits ) {
         assert( slot >= 0 && slot < num_slots );
         auto out = std::make_tuple( std::move( get( slot ) ), hash_bits[ slot ], probe_lengths[ slot ] );
         traits.destroy_at( &get( slot ) );
@@ -1551,8 +1572,6 @@ struct BucketBase {
         hash_bits[ my_slot ] = other->hash_bits[ other_slot ];
         probe_lengths[ my_slot ] = other->probe_lengths[ other_slot ] - 1;
     }
-
-    static uint8_t get_check_bits( auto hash_val ) { return ( hash_val & 0xff ) | 0x80; }
 
     mask_type occupied_mask() const {
         mask_type out = 0;

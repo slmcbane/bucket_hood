@@ -1,5 +1,4 @@
-#include "../test/use_debug_bucket.hpp"
-
+#define BUCKET_HOOD_BUCKET_OVERRIDE SSE2Bucket
 #include "../bucket_hood.hpp"
 #include "nanobench.hpp"
 #include "xorshiftstar.hpp"
